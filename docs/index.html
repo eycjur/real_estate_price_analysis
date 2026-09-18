@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>不動産売却価格 回帰分析</title>
+<meta name="description" content="国土交通省の不動産取引価格データ(約106万件)で、東京23区と政令指定都市の中古マンション・戸建の価格を回帰分析。築年数や立地でいくら変わるか、将来予測、利回り、全国の相場比較。">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="不動産売却価格 回帰分析">
+<meta property="og:title" content="不動産売却価格 回帰分析 — 築年数・立地でいくら変わるか">
+<meta property="og:description" content="国土交通省の取引価格データ約106万件を回帰分析。築年数・立地の効果、立地マップ、将来予測、利回り、全国の相場比較。">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:url" content="./">
+<meta property="og:image" content="ogp.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" integrity="sha384-cCVCZkAjYNxaYKbM8lsArLznDF/SvMFr1jcZrvOpSTCa0W40ZAdLzHCEulnUa5i7" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" integrity="sha384-c6Rcwz4e4CITMbu/NBmnNS8yN2sC3cUElMEMfP3vqqKFp7GOYaaBBCqmaWBjmkjb" crossorigin="anonymous">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" integrity="sha384-NElt3Op+9NBMCYaef5HxeJmU4Xeard/Lku8ek6hoPTvYkQPh3zLIrJP7KiRocsxO" crossorigin="anonymous"></script>
+<style>
+:root {
+  --bg: #f4f3ef; --surface: #fcfcfb; --border: #dddbd3; --text: #0b0b0b; --text2: #52514e; --muted: #8a887f;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --grid: #e7e5de; --accent: #2a78d6; --hl-text: #a83c12;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111110; --surface: #1a1a19; --border: #33332f; --text: #fff; --text2: #c3c2b7; --muted: #8a887f;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --grid: #2a2a27; --accent: #3987e5; --hl-text: #f4a582; }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.6 system-ui, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 60px; }
+h1 { font-size: 22px; margin: 0 0 2px; letter-spacing: .02em; }
+.lead { color: var(--text2); margin: 0 0 16px; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+.filters { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: end; }
+label.f { display: flex; flex-direction: column; font-size: 12px; color: var(--text2); gap: 3px; }
+select, input[type=number] { font: inherit; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
+input[type=number] { width: 84px; }
+.checks { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
+.tile .k { font-size: 12px; color: var(--text2); }
+.tile .v { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.tile .n { font-size: 11.5px; color: var(--muted); }
+.eq { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; overflow-wrap: anywhere; padding: 8px 0 2px; }
+.tabs.modes { margin-bottom: 14px; }
+.tabs.modes button { font-size: 15px; padding: 9px 18px; }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+.tabs button { font: inherit; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text2); cursor: pointer; }
+.tabs button[aria-selected=true] { background: var(--accent); border-color: var(--accent); color: #fff; }
+h2 { font-size: 15px; margin: 0 0 8px; }
+.chart { width: 100%; height: 440px; }
+.chart.sm { height: 320px; }
+.grid2 { display: grid; align-items: start; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; }
+.tblwrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { padding: 5px 10px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+#market_table tr[data-name] { cursor: pointer; }
+#market_table tr[data-name]:hover td { background: color-mix(in srgb, var(--s2) 7%, transparent); }
+tr.hl td { font-weight: 700; color: var(--hl-text); background: color-mix(in srgb, var(--s2) 14%, transparent); }
+th.grp { text-align: center; border-bottom: 1px solid var(--border); }
+th { color: var(--text2); font-weight: 600; font-size: 12px; }
+.note { color: var(--text2); font-size: 12.5px; margin: 8px 0 0; }
+.err { color: #c0392b; font-weight: 600; }
+details summary { cursor: pointer; color: var(--text2); margin-top: 8px; }
+.cards { columns: 230px; column-gap: 10px; }
+.cards > .card { break-inside: avoid; margin-bottom: 10px; display: block; }
+.maplegend { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text2); margin-top: 8px; }
+.maplegend .bar { flex: 0 0 220px; height: 10px; border-radius: 5px; background: linear-gradient(90deg, #1f5fb0, #7fa8dd, #d6d4cc, #f0a27e, #c8451a); }
+.card { border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; position: relative; }
+.card h3 { font-size: 13px; margin: 0 0 4px; }
+.card.base-card { border-color: var(--accent); }
+.card.base-card .price { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.card .base { font-size: 11.5px; color: var(--muted); margin-bottom: 4px; }
+.card .row { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; padding: 1.5px 0; font-variant-numeric: tabular-nums; }
+.card .row span:last-child { font-weight: 600; white-space: nowrap; }
+.card .row.opt { cursor: pointer; border-radius: 4px; padding: 1.5px 6px; margin: 0 -6px; }
+.card .row.opt:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.gridmap { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; margin-bottom: 14px; }
+@media (max-width: 800px) { .gridmap { grid-template-columns: 1fr; } }
+.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin: 10px 0 14px; }
+h3.ch { font-size: 13px; margin: 0; }
+.chart.xs { height: 260px; }
+.linkbtn { font: inherit; font-size: 12px; color: var(--accent); background: none; border: none; cursor: pointer; padding: 0; text-decoration: underline; }
+.card .row.opt.baseline, .card .row.baseline { background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 4px; padding: 2px 6px; margin: 2px -6px 4px; }
+.card .row.ns, .ns { color: var(--muted); }
+.card .row.ns span:last-child { font-weight: 400; }
+.card .sep { border-top: 1px dashed var(--border); margin: 3px 0; }
+ul.src { margin: 6px 0; padding-left: 20px; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>不動産売却価格 回帰分析</h1>
+  <p class="lead">国土交通省の取引価格データによる、都市ごとの価格の回帰分析(築年数・立地などの効果、将来予測、利回り)と、全国の相場比較。</p>
+
+  <div class="tabs modes" role="tablist">
+    <button data-mode="city" aria-selected="true">都市ごとの分析(回帰)</button>
+    <button data-mode="national" aria-selected="false">全国の比較(相場)</button>
+  </div>
+
+  <div id="mode-city">
+
+  <section class="panel">
+    <div class="filters">
+      <label class="f">都市<select id="city"></select></label>
+      <label class="f">種別<select id="kind"></select></label>
+      <label class="f">取引年(から)<input type="number" id="year_from"></label>
+      <label class="f">取引年(まで)<input type="number" id="year_to"></label>
+    </div>
+    <p class="note">築年数は1年刻みのカテゴリ変数(曲線の形を仮定しない)、説明変数は取得できる項目をすべて投入し、地区(町名)の効果も含めています。通常の変数は罰則なしの最小二乗法、水準が数千ある地区名だけ L2 で区平均へ縮小しています。</p>
+    <p id="status" class="note"></p>
+  </section>
+
+  <div class="tiles" id="tiles"></div>
+
+  <section class="panel">
+    <h2>回帰方程式 <span class="note">— 基準の物件の価格に、当てはまる項目の%を掛け合わせたものが推定価格です。行をクリックすると、その条件が基準になります</span></h2>
+    <div id="base_card"></div>
+    <div class="cards" id="eq_cards"></div>
+    <details id="eq_details"><summary>詳細(区・取引年・改装・用途地域など、残りの項目)</summary>
+      <div class="cards" id="eq_cards_detail" style="margin-top:10px"></div></details>
+    <div class="grid3">
+      <div><h3 class="ch">予測と実績 <span class="note">(無作為抽出3,000件、対数軸)</span></h3><div id="chart_pa" class="chart xs"></div></div>
+      <div><h3 class="ch">築年数と価格 <span class="note">(基準の物件で築年数だけ変えた場合。1年ごとに推定)</span></h3><div id="chart_agecurve" class="chart xs"></div></div>
+      <div><h3 class="ch">取引年と価格 <span class="note">(基準の物件の各年の相場)</span></h3><div id="chart_year" class="chart xs"></div></div>
+    </div>
+    <div class="gridmap">
+      <div><h3 class="ch">立地マップ <span class="note" id="map_sub"></span></h3>
+        <div id="chart_map" style="width:100%;height:440px;border-radius:8px;z-index:0"></div>
+        <div class="maplegend"><span id="map_lo"></span><span class="bar"></span><span id="map_hi"></span></div>
+        <p class="note" id="map_note"></p></div>
+      <div><h3 class="ch">区の効果 <span class="note" id="ward_sub"></span></h3><div id="chart_ward" style="width:100%;height:440px"></div></div>
+    </div>
+    <p class="note" id="dropped_note" hidden></p>
+    <p class="note">%は、他の条件が同じまま、その項目だけを基準(色付きの行)から変えたときの価格差。<span class="ns">薄い字</span>は統計的に有意でない項目(p≥0.05、初期の基準のときのみ表示)。「不明」はデータに記載のない取引です。</p>
+  </section>
+
+  <div class="tabs" role="tablist">
+    <button data-tab="profile" aria-selected="true">断面グラフ</button>
+    <button data-tab="coef" aria-selected="false">係数と誤差</button>
+    <button data-tab="forecast" aria-selected="false">将来予測(人口)</button>
+    <button data-tab="yield" aria-selected="false">投資利回り</button>
+    <button data-tab="source" aria-selected="false">データと方法</button>
+  </div>
+
+  <section id="tab-profile">
+    <div class="panel">
+      <h2>断面の条件 <span class="note">— 1つの変数だけ動かし、他は下の値に固定します。初期値は上の「基準の物件」で、カードをクリックすると連動します(将来予測・利回りも共通)</span></h2>
+      <div class="filters">
+        <label class="f">横軸にする変数<select id="vary"></select></label>
+        <label class="f">区<select id="p_ward"></select></label>
+        <label class="f">築年数<input type="number" id="p_age" value="20" min="0" max="60"></label>
+        <label class="f"><span id="lbl_area">面積(㎡)</span><input type="number" id="p_area" value="65" min="10" max="300"></label>
+        <label class="f" id="wrap_land" hidden>土地面積(㎡)<input type="number" id="p_land_area" value="100" min="20" max="1000"></label>
+        <label class="f">駅徒歩(分)<input type="number" id="p_station_min" value="8" min="0" max="120"></label>
+        <label class="f">取引年<select id="p_year"></select></label>
+        <label class="f" id="wrap_district">地区<select id="p_district"></select></label>
+      </div>
+      <div class="filters" id="cat_props" style="margin-top:10px"></div>
+      <p class="note">カテゴリ項目の「自動」は、同じ区で面積が近い取引の最頻値を使います(例: 25㎡なら間取りは1K)。地区の「区の平均」は地区効果0です。</p>
+    </div>
+    <div class="panel">
+      <h2 id="profile_title">推定価格</h2>
+      <div id="chart_profile" class="chart"></div>
+      <p class="note" id="profile_note"></p>
+    </div>
+  </section>
+
+  <section id="tab-coef" hidden>
+    <div class="panel">
+      <h2>係数表</h2>
+      <div class="tblwrap"><table id="coef_table"></table></div>
+      <p class="note" id="coef_note"></p>
+    </div>
+    <div class="grid2">
+      <div class="panel"><h2>残差の分布(ln価格の実績−推定)</h2><div id="chart_resid" class="chart sm"></div></div>
+    </div>
+  </section>
+
+  <section id="tab-forecast" hidden>
+    <div class="panel">
+      <h2>この物件の将来価格 <span class="note">— 条件は「断面グラフ」タブの物件条件を使用</span></h2>
+      <div id="chart_forecast" class="chart"></div>
+      <p class="note" id="forecast_note"></p>
+    </div>
+    <div class="grid2">
+      <div class="panel"><h2>区の人口(実績と推計)</h2><div id="chart_pop" class="chart sm"></div></div>
+      <div class="panel"><h2>人口弾力性の推定</h2><div id="elasticity"></div>
+        <p class="note">全都市の取引をプールし、区固定効果と「都市×年」固定効果を入れて ln(区人口) の係数を推定。区内の人口変化と価格変化の対応だけから識別しています。標準誤差は区クラスタ頑健。</p></div>
+    </div>
+    <div class="panel">
+      <h2>予測の前提と限界</h2>
+      <ul class="src">
+        <li>将来価格 = 現在の推定価格 × 経年減価(築年数の係数) × 人口効果(弾力性 × 人口推計の変化率)。</li>
+        <li>金利・建築費・景気など市場全体のトレンドは横ばいと仮定(現在の物価での実質的な相対評価)。</li>
+        <li>人口弾力性は因果効果とは限りません(人気エリアに人が集まり価格も上がる、という逆の因果を含みます)。</li>
+        <li>帯は係数の推定誤差のみを反映した95%区間で、個別物件のばらつきや前提の不確かさは含みません。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="tab-yield" hidden>
+    <div class="panel">
+      <h2>利回りの前提 <span class="note">— 物件条件(区・築年数・面積など)は「断面グラフ」タブと共通。ワンルームなら面積を25㎡前後に</span></h2>
+      <div class="filters">
+        <label class="f">空室・滞納ロス(%)<input type="number" id="c_vacancy_pct" value="5" min="0" max="100" step="1"></label>
+        <label class="f">賃貸管理委託料(%)<input type="number" id="c_management_fee_pct" value="5" min="0" max="100" step="0.5"></label>
+        <label class="f">管理費+修繕積立金(円/月)<input type="number" id="c_building_fee_month" value="12000" min="0" step="1000" style="width:110px"></label>
+        <label class="f">固定資産税等(円/年)<input type="number" id="c_property_tax_year" value="50000" min="0" step="5000" style="width:110px"></label>
+        <label class="f">購入諸費用(%)<input type="number" id="c_purchase_cost_pct" value="7" min="0" max="30" step="0.5"></label>
+        <label class="f">家賃を直接指定(円/月、空欄=統計から推定)<input type="number" id="c_rent_month" min="0" step="1000" placeholder="統計から推定" style="width:150px"></label>
+      </div>
+      <p id="yield_status" class="note"></p>
+    </div>
+    <div class="tiles" id="yield_tiles"></div>
+    <div class="grid2">
+      <div class="panel"><h2>築年数と利回り</h2><div id="chart_yield_age" class="chart sm"></div>
+        <p class="note">価格は築年数とともに大きく下がる一方、家賃の低下は緩やかなため、築古ほど利回りは高く出ます(その分、修繕・空室・出口価格のリスクは増えます)。</p></div>
+      <div class="panel"><h2>区ごとの利回り(同じ物件条件)</h2><div id="chart_yield_ward" class="chart sm"></div></div>
+    </div>
+    <div class="panel">
+      <h2>計算方法と注意</h2>
+      <ul class="src">
+        <li>価格: 上の回帰モデルによる推定価格(選択中の取引年の水準)。</li>
+        <li>想定家賃: 令和5年住宅・土地統計調査の「区×延べ面積区分別 民営借家(非木造の共同住宅)の平均家賃」× 築年補正(同調査の都市別・建築時期別の家賃 ÷ 都市平均)。</li>
+        <li>統計の家賃は2023年10月時点で入居中の世帯の平均(長期入居の継続賃料を含む)で、新規募集の家賃より低めに出やすい値です。相場を把握している場合は家賃を直接指定してください。</li>
+        <li>表面利回り = 年間家賃 ÷ 価格。実質利回り = (年間家賃×(1−空室ロス)×(1−管理委託料) − 管理費・修繕積立金 − 固定資産税等) ÷ (価格×(1+購入諸費用))。</li>
+        <li>ローン金利、所得税、大規模修繕の一時金、原状回復費、売却時の価格変動は含みません。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="tab-source" hidden>
+    <div class="panel">
+      <h2>データの出所</h2>
+      <ul class="src">
+        <li>取引価格: <a href="https://www.reinfolib.mlit.go.jp/realEstatePrices/" target="_blank" rel="noopener">国土交通省 不動産情報ライブラリ</a>「不動産取引価格情報・成約価格情報」(2010年第1四半期〜)。本アプリは同データを加工して作成しています。</li>
+        <li>家賃: <a href="https://www.e-stat.go.jp/stat-search/files?toukei=00200522&tstat=000001207800" target="_blank" rel="noopener">総務省統計局「令和5年住宅・土地統計調査」</a> 第130表(建て方・延べ面積別の民営借家の1か月当たり家賃、市区別)、第107-2表(建築の時期別の借家の1畳当たり家賃、21大都市)。</li>
+        <li>地区の位置: <a href="https://nlftp.mlit.go.jp/isj/" target="_blank" rel="noopener">国土交通省「位置参照情報」</a>(大字・町丁目レベル)。丁目の代表点を町名ごとに平均。背景地図は<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院タイル</a>。</li>
+        <li>人口: <a href="https://www.ipss.go.jp/pp-shicyoson/j/shicyoson23/t-page.asp" target="_blank" rel="noopener">国立社会保障・人口問題研究所</a>「日本の地域別将来推計人口」(令和5年推計。2010・2015・2020年は各推計に収録の国勢調査実績、間の年は線形補間)。</li>
+      </ul>
+      <h2>対象と前処理</h2>
+      <ul class="src">
+        <li>対象: 東京23区と政令指定都市(札幌・仙台・さいたま・千葉・横浜・川崎・相模原・名古屋・京都・大阪・堺・神戸・広島・北九州・福岡)。</li>
+        <li>種別: 中古マンション等、宅地(土地と建物)のうち用途が住宅(未記載含む)のもの。</li>
+        <li>除外: 調停・競売など特殊事情のある取引、建築年・駅距離などの欠損、築60年超、面積10㎡未満/300㎡超、都市×年ごとの㎡単価 上下0.5%。</li>
+        <li>築年数 = 取引年 − 建築年。駅距離「30分〜60分」等は区間の中央値に置換。</li>
+      </ul>
+      <h2>モデル</h2>
+      <ul class="src">
+        <li>ln(価格) = 築年数 + ln(面積) + 駅徒歩 + 構造・改装・間取り・用途地域・容積率・取引四半期など(戸建は土地面積・土地形状・前面道路・間口も) + 区効果 + 取引年効果 の最小二乗法(ヘドニック回帰)。成約価格情報に無い項目は「不明」を独立の区分として扱い、完全に重複する列は自動で除外します。</li>
+        <li>地区(町名)効果は水準が数千あるため L2 罰則(λ)つきで推定します。取引の少ない地区ほど区平均に引き寄せられ、混合効果モデルのランダム効果に相当します。他の係数は罰則なしなので、築年数などの係数と標準誤差はそのまま解釈できます。</li>
+        <li>「検証用2割での誤差」は、取引の2割を除いて推定し、その2割を予測したときの誤差です(過学習の確認用)。標準誤差は不均一分散に頑健なHC1(全都市プール時は区クラスタ)。</li>
+        <li>「典型的な誤差」= exp(残差の標準偏差) − 1。個別物件の価格が推定からどの程度ずれるかの目安です。</li>
+        <li>データは物件の階数・向き・管理状態などを含まないため、個別査定の代わりにはなりません。</li>
+      </ul>
+    </div>
+  </section>
+  </div>
+
+  <div id="mode-national" hidden>
+  <section id="tab-market">
+    <div class="panel">
+      <h2>相場の条件 <span class="note">— 回帰モデルではなく、条件に合う実取引をそのまま集計します</span></h2>
+      <div class="filters">
+        <label class="f">地域<select id="m_region"></select></label>
+        <label class="f">種別<select id="m_kind"></select></label>
+        <label class="f"><span id="m_lbl_area">面積(㎡) から</span><input type="number" id="m_area_min" value="15" min="10" max="300"></label>
+        <label class="f">まで<input type="number" id="m_area_max" value="30" min="10" max="300"></label>
+        <label class="f">築年数 から<input type="number" id="m_age_min" value="0" min="0" max="60"></label>
+        <label class="f">まで<input type="number" id="m_age_max" value="40" min="0" max="60"></label>
+        <label class="f">駅徒歩(分)以内<input type="number" id="m_station_max" value="15" min="0" max="120"></label>
+        <label class="f">取引年 から<input type="number" id="m_year_from"></label>
+        <label class="f">まで<input type="number" id="m_year_to"></label>
+        <label class="f">強調する地域<select id="m_series"></select></label>
+      </div>
+      <p class="note">強調する地域は、棒グラフ・推移・一覧で橙色になります(表の行・棒・線をクリックしても切り替わります)。「都市ごとの分析」で選んだ都市に連動します。</p>
+      <p id="market_status" class="note"></p>
+    </div>
+    <div class="grid2">
+      <div class="panel"><h2>㎡単価の相場(中央値)</h2><div id="chart_market" class="chart sm"></div></div>
+      <div class="panel"><h2>㎡単価の推移</h2><div id="chart_market_year" class="chart sm" style="height:420px"></div>
+        <p class="note">面積・築年数・駅徒歩の条件に合う取引の年別中央値を、全期間・全地域ぶん描いています(取引年の条件は一覧と棒グラフにだけ適用。件数20件未満の年は除外)。線にカーソルを載せると地域名を表示。</p></div>
+    </div>
+    <div class="panel">
+      <h2>一覧</h2>
+      <div class="tblwrap"><table id="market_table"></table></div>
+      <p class="note" id="market_note"></p>
+    </div>
+  </section>
+
+  </div>
+  <footer class="note" style="margin-top:24px;line-height:1.8">
+    出典: 「不動産取引価格情報・成約価格情報」(国土交通省 <a href="https://www.reinfolib.mlit.go.jp/" target="_blank" rel="noopener">不動産情報ライブラリ</a>)、
+    「日本の地域別将来推計人口」(<a href="https://www.ipss.go.jp/" target="_blank" rel="noopener">国立社会保障・人口問題研究所</a>)、
+    「令和5年住宅・土地統計調査」(総務省統計局、<a href="https://www.e-stat.go.jp/" target="_blank" rel="noopener">政府統計の総合窓口(e-Stat)</a>)、
+    「大字・町丁目位置参照情報」(国土交通省、2024年整備) を加工して作成。背景地図: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>。<br>
+    このページは個人が上記のデータを編集・加工して作成したもので、国や各機関が作成・保証したものではありません。推定値は参考情報であり、個別の不動産の査定・投資判断の根拠とはなりません。
+  </footer>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const yen = v => v >= 1e8 ? (v / 1e8).toFixed(2) + '億円' : Math.round(v / 1e4).toLocaleString() + '万円';
+const pct = (v, d = 1) => (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(d) + '%';
+const FIT_IDS = ['city', 'kind', 'year_from', 'year_to'];
+const MARKET_IDS = ['m_region', 'm_kind', 'm_area_min', 'm_area_max', 'm_age_min', 'm_age_max', 'm_station_max', 'm_year_from', 'm_year_to'];
+const COST_IDS = ['c_vacancy_pct', 'c_management_fee_pct', 'c_building_fee_month', 'c_property_tax_year', 'c_purchase_cost_pct', 'c_rent_month'];
+const PROP_IDS = ['p_ward', 'p_age', 'p_area', 'p_land_area', 'p_station_min', 'p_year', 'p_district'];
+let META, FIT, seq = 0, lastKind;
+
+// 計算はすべて Web Worker (js/worker.js) の中で行う。api('/api/fit', body) の形は以前のサーバー版と同じ
+const worker = new Worker('js/worker.js', { type: 'module' });
+const pending = new Map();
+let rpcId = 0;
+worker.onmessage = ({ data: { id, result, error } }) => {
+  const p = pending.get(id); pending.delete(id);
+  error ? p.reject(new Error(error)) : p.resolve(result);
+};
+worker.onerror = e => { for (const p of pending.values()) p.reject(new Error(e.message || '計算用のスクリプトを読み込めません')); pending.clear(); };
+function api(path, body) {
+  return new Promise((resolve, reject) => { pending.set(++rpcId, { resolve, reject }); worker.postMessage({ id: rpcId, route: path.replace('/api/', ''), body }); });
+}
+function fitParams() {
+  const o = {};
+  for (const id of ['city', 'kind']) o[id] = $(id).value;
+  o.year_from = +$('year_from').value; o.year_to = +$('year_to').value;
+  return o;
+}
+function propParams() {
+  const o = {};
+  for (const id of PROP_IDS) { const e = $(id); o[id.slice(2)] = e.type === 'number' || id === 'p_year' ? +e.value : e.value; }
+  for (const e of document.querySelectorAll('#cat_props select')) if (e.value) o[e.dataset.var] = e.value;
+  return o;
+}
+function layout(extra = {}) {
+  const base = {
+    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', margin: { l: 70, r: 20, t: 10, b: 48 },
+    font: { color: css('--text2'), size: 12, family: 'system-ui, "Hiragino Sans", sans-serif' },
+    xaxis: { gridcolor: css('--grid'), zeroline: false, linecolor: css('--border') },
+    yaxis: { gridcolor: css('--grid'), zeroline: false, linecolor: css('--border') },
+    legend: { orientation: 'h', y: 1.08, x: 0 }, hovermode: 'x unified', hoverlabel: { bgcolor: css('--surface'), font: { color: css('--text') } },
+  };
+  for (const k of Object.keys(extra)) base[k] = typeof extra[k] === 'object' && !Array.isArray(extra[k]) && base[k] ? { ...base[k], ...extra[k] } : extra[k];
+  return base;
+}
+const CFG = { displayModeBar: false, responsive: true };
+const band = (x, lo, hi, color, name, opacity) => [
+  { x, y: lo, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false },
+  { x, y: hi, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: color + opacity, name, hoverinfo: 'skip' },
+];
+const priceAxis = { title: { text: '価格(万円)' }, tickformat: ',.0f' };
+const man = a => a.map(v => v / 1e4);
+
+function fillSelect(el, items, value) {
+  el.innerHTML = items.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
+  if (value != null && items.some(([v]) => String(v) === String(value))) el.value = value;
+}
+
+function syncControls() {
+  const kind = $('kind').value, city = $('city').value;
+  const c = META.cities.find(c => c.name === city);
+  const wards = c ? c.wards[kind] : META.cities.flatMap(c => c.wards[kind] ?? []);
+  fillSelect($('p_ward'), wards.map(w => [w, w]), $('p_ward').value);
+  lastKind = kind;
+  const house = kind === 'house';
+  $('wrap_land').hidden = !house;
+  $('lbl_area').textContent = house ? '建物面積(㎡)' : '面積(㎡)';
+  if (house && +$('p_area').value < 80) $('p_area').value = 100;
+  if (!house && +$('p_area').value > 90) $('p_area').value = 65;
+  const vary = [['age', '築年数'], ['area', house ? '建物面積' : '面積'], ...(house ? [['land_area', '土地面積']] : []), ['station_min', '駅徒歩'], ['year', '取引年']];
+  fillSelect($('vary'), vary, $('vary').value);
+}
+
+async function refit() {
+  const my = ++seq;
+  $('status').textContent = '推定中…'; $('status').className = 'note';
+  try {
+    FIT = await api('/api/fit', fitParams());
+    if (my !== seq) return;
+    $('status').textContent = '';
+    renderFit();
+    renderMap();
+    await syncProperty();  // 物件条件を基準の物件に揃えて、断面・将来予測・利回りを描く
+    await loadDistricts();
+  } catch (e) { if (my === seq) { $('status').textContent = e.message; $('status').className = 'err'; } }
+}
+
+// 回帰方程式のカード。各カードは選択肢ごとの ln価格差(初期の基準=0)を持ち、クリックで基準を切り替える。
+// 基準を変えても係数の差を取り直すだけなので、再推定は不要
+let SEL = {};  // カード key → 基準にした選択肢の key
+let syncProperty = async () => {};  // renderCards が現在のカード定義で差し替える
+function cardDefs(f) {
+  const by = Object.fromEntries(f.coefficients.map(r => [r.name, r])), b0 = f.base, house = f.params.kind === 'house';
+  // 築年数は1年刻みのカテゴリ変数。係数のある年(基準は0)だけを持ち、カードには代表的な年を並べる
+  const ageCoef = new Map([[f.base_age, 0], ...f.coefficients.filter(r => r.name.startsWith('age=')).map(r => [+r.name.slice(4), r.coef])]);
+  const ageYears = [...ageCoef.keys()].sort((a, b) => a - b);
+  const ageLn = a => ageCoef.get(ageYears.reduce((best, y) => Math.abs(y - a) < Math.abs(best - a) ? y : best));
+  const num = (key, title, unit, ref, values, ln, extra) => ({ key, title, main: true, base: ref, extra,
+    opts: [...new Set([...values, ref])].sort((a, b) => a - b).map(v => ({ key: v, label: unit(v), ln: ln(v) })) });
+  const defs = [num('age', '築年数', a => a ? `築${a}年` : '新築(築0年)', b0.age, [0, 5, 10, 15, 20, 30, 40, 50].filter(a => ageCoef.has(a)), ageLn,
+    ['築10〜20年の年率', pct(Math.expm1(Math.log1p(f.age_effects[1].pct) / 10), 2)])];
+  defs.push(num('area', house ? '建物面積' : '面積', a => a + '㎡', b0.area, house ? [80, 100, 120, 150] : [20, 30, 40, 60, 80], a => by.ln_area.coef * Math.log(a / b0.area)));
+  if (house) defs.push(num('land', '土地面積', a => a + '㎡', b0.land_area, [60, 100, 150, 200], a => by.ln_land.coef * Math.log(a / b0.land_area)));
+  defs.push(num('station', '最寄駅からの距離', m => `徒歩${m}分`, b0.station_min, [1, 5, 10, 15, 20], m => by.station_min.coef * (m - b0.station_min),
+    ['1分遠くなるごとに', pct(Math.expm1(by.station_min.coef))]));
+  for (const [c, v] of Object.entries(f.categoricals)) {
+    const opts = v.levels.map((l, i) => i === 0 ? { key: l, label: l, ln: 0 } : by[`${c}=${l}`] && { key: l, label: l, ln: by[`${c}=${l}`].coef, ns: by[`${c}=${l}`].p >= 0.05 })
+      .filter(Boolean).sort((a, b) => b.ln - a.ln);
+    defs.push({ key: c, title: v.label, main: c === 'layout' || c === 'structure', base: v.levels[0], opts });
+  }
+  defs.push({ key: 'ward', title: '区', base: f.base_ward,
+    opts: [{ key: f.base_ward, label: f.base_ward, ln: 0 }, ...f.ward_effects.map(r => ({ key: r.name.slice(5), label: r.name.slice(5), ln: r.coef, ns: r.p >= 0.05 }))].sort((a, b) => b.ln - a.ln) });
+  if (f.year_effects.length) defs.push({ key: 'year', title: '取引年(市況)', base: f.base_year,
+    opts: [{ key: f.base_year, label: f.base_year + '年', ln: 0 }, ...f.year_effects.map(r => ({ key: r.year, label: r.year + '年', ln: r.coef, ns: r.p >= 0.05 }))].sort((a, b) => b.key - a.key) });
+  return { defs, ageLn, ageYears };
+}
+function renderCards() {
+  const f = FIT, { defs, ageLn, ageYears } = cardDefs(f);
+  const sel = d => d.opts.find(o => String(o.key) === String(SEL[d.key] ?? d.base));
+  const price = f.base.price * Math.exp(defs.reduce((t, d) => t + sel(d).ln, 0));
+  const changed = defs.some(d => String(sel(d).key) !== String(d.base));
+  $('base_card').innerHTML = `<div class="card base-card"><h3>基準の物件${changed ? '(選択中の条件)' : ' = exp(切片)'}</h3><div class="price">${yen(price)}</div>
+    <div class="base">${defs.map(d => `${d.title}=${sel(d).label}`).join(' / ')} / 地区は区の平均</div>
+    ${changed ? '<button class="linkbtn" id="reset_base">基準を初期値に戻す</button>' : ''}</div>`;
+  if (changed) $('reset_base').onclick = () => { SEL = {}; renderCards(); syncProperty(); };
+  // 基準の物件を「断面の条件」(断面グラフ・将来予測・利回りで共通)へ反映する。keys を指定するとその項目だけ
+  syncProperty = async keys => {
+    const v = Object.fromEntries(defs.filter(d => !keys || keys.includes(d.key)).map(d => [d.key, sel(d).key]));
+    const wardChanged = v.ward != null && $('p_ward').value !== String(v.ward);
+    const set = (id, val) => { if (val != null) $(id).value = val; };
+    set('p_ward', v.ward); set('p_age', v.age); set('p_area', v.area); set('p_land_area', v.land); set('p_station_min', v.station); set('p_year', v.year);
+    for (const e of document.querySelectorAll('#cat_props select')) if (v[e.dataset.var] != null) e.value = v[e.dataset.var];
+    if (wardChanged) { $('p_district').value = ''; await loadDistricts(); }
+    await Promise.all([renderProfile(), renderForecast(), renderYield()]);
+  };
+  const cardHtml = d => {
+    const s0 = sel(d), initial = String(s0.key) === String(d.base);
+    const rows = d.opts.map(o => o === s0
+      ? `<div class="row opt baseline" data-card="${d.key}" data-key="${o.key}"><span>基準: ${o.label}</span><span>±0%</span></div>`
+      : `<div class="row opt${initial && o.ns ? ' ns' : ''}" data-card="${d.key}" data-key="${o.key}"><span>${o.label}</span><span>${pct(Math.expm1(o.ln - s0.ln))}</span></div>`).join('') +
+      (d.extra ? `<div class="sep"></div><div class="row"><span>${d.extra[0]}</span><span>${d.extra[1]}</span></div>` : '');
+    return `<div class="card"><h3>${d.title}</h3>${rows}</div>`;
+  };
+  // 築年数・面積・駅距離・構造・間取りは常に表示し、残りは「詳細」の折りたたみにまとめる
+  $('eq_cards').innerHTML = defs.filter(d => d.main).map(cardHtml).join('');
+  $('eq_cards_detail').innerHTML = defs.filter(d => !d.main).map(cardHtml).join('');
+  for (const e of document.querySelectorAll('.cards .row.opt')) e.onclick = () => { SEL[e.dataset.card] = e.dataset.key; renderCards(); syncProperty([e.dataset.card]); };
+
+  // 区の効果(選択中の基準の区との差)。区が多い全都市プールでは上位・下位20区
+  const ward = defs.find(d => d.key === 'ward'), w0 = sel(ward);
+  const wl = (ward.opts.length > 40 ? [...ward.opts.slice(0, 20), ...ward.opts.slice(-20)] : ward.opts).slice().reverse();
+  Plotly.react('chart_ward', [{ y: wl.map(o => o.label), x: wl.map(o => 100 * Math.expm1(o.ln - w0.ln)), type: 'bar', orientation: 'h',
+    marker: { color: wl.map(o => o === w0 ? css('--s2') : css('--s1')) }, hovertemplate: '%{y}: %{x:+.1f}%<extra></extra>' }],
+    layout({ margin: { l: 10, r: 10, t: 6, b: 42 }, xaxis: { title: { text: `${w0.label} との価格差(%)` }, zeroline: true, zerolinecolor: css('--border') },
+      yaxis: { tickfont: { size: 9.5 }, automargin: true, dtick: 1 }, hovermode: 'closest', showlegend: false }), CFG);
+  $('ward_sub').textContent = ward.opts.length > 40 ? '(上位・下位20区)' : '';
+  drawMap(w0);
+
+  // 築年数・取引年のグラフ: 選択中の基準の物件で、その項目だけを動かしたときの価格
+  const age = defs.find(d => d.key === 'age'), xs = ageYears, a0 = sel(age);
+  const small = { margin: { l: 60, r: 10, t: 6, b: 42 }, showlegend: false };
+  Plotly.react('chart_agecurve', [
+    { x: xs, y: xs.map(a => price * Math.exp(ageLn(a) - a0.ln) / 1e4), mode: 'lines+markers', line: { color: css('--s1'), width: 1.5 }, marker: { size: 4 }, hovertemplate: '築%{x}年: %{y:,.0f}万円<extra></extra>' },
+    { x: [a0.key], y: [price / 1e4], mode: 'markers', marker: { color: css('--s1'), size: 10, line: { color: css('--surface'), width: 2 } }, hovertemplate: '基準 築%{x}年: %{y:,.0f}万円<extra></extra>' },
+  ], layout({ ...small, xaxis: { title: { text: '築年数(年)' } }, yaxis: { ...priceAxis, rangemode: 'tozero' } }), CFG);
+  const year = defs.find(d => d.key === 'year');
+  if (year) {
+    const ys = year.opts.slice().sort((a, b) => a.key - b.key), y0 = sel(year);
+    if (!$('chart_year').querySelector('.plot-container')) $('chart_year').textContent = '';
+    Plotly.react('chart_year', [
+      { x: ys.map(o => o.key), y: ys.map(o => price * Math.exp(o.ln - y0.ln) / 1e4), mode: 'lines+markers', line: { color: css('--s1'), width: 2 }, marker: { size: 6 }, hovertemplate: '%{x}年: %{y:,.0f}万円<extra></extra>' },
+      { x: [y0.key], y: [price / 1e4], mode: 'markers', marker: { color: css('--s1'), size: 10, line: { color: css('--surface'), width: 2 } }, hovertemplate: '基準 %{x}年: %{y:,.0f}万円<extra></extra>' },
+    ], layout({ ...small, xaxis: { title: { text: '取引年' } }, yaxis: { ...priceAxis, rangemode: 'tozero' } }), CFG);
+  } else { Plotly.purge('chart_year'); $('chart_year').textContent = '全都市プールでは「都市×年」効果として推定しています(各都市を選ぶと表示)。'; }
+}
+
+async function loadDistricts() {
+  const ds = await api('/api/districts', { fit: fitParams(), ward: $('p_ward').value });
+  fillSelect($('p_district'), [['', '区の平均'], ...ds.map(d => [d.district, `${d.district} (${pct(Math.expm1(d.effect), 0)}, ${d.n}件)`])], $('p_district').value);
+}
+
+function renderFit() {
+  const f = FIT, a = f.age_effects;
+  const cats = Object.entries(f.categoricals), old = {};
+  for (const e of document.querySelectorAll('#cat_props select')) old[e.dataset.var] = e.value;
+  $('cat_props').innerHTML = cats.map(([c, v]) => `<label class="f">${v.label}<select data-var="${c}"><option value="">自動</option>${
+    v.levels.map(l => `<option ${old[c] === String(l) ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`).join('');
+  for (const e of document.querySelectorAll('#cat_props select')) e.addEventListener('change', () => { renderProfile(); renderForecast(); renderYield(); });
+  $('dropped_note').hidden = !f.dropped.length;
+  $('dropped_note').textContent = '他の変数と完全に重複するため除外した項目: ' + f.dropped.join('、');
+  const perYear = Math.expm1(Math.log1p(a[1].pct) / 10);
+  $('tiles').innerHTML = [
+    ['築10→20年の価格変化', pct(a[1].pct), `年率換算 ${pct(perYear, 2)} / 年`],
+    ['決定係数 R²', f.r2.toFixed(3), `自由度調整済み ${f.adj_r2.toFixed(3)}`],
+    ['典型的な誤差', '±' + (f.typical_error_pct * 100).toFixed(0) + '%', `実際の価格は、取引の${(f.within_1sd * 100).toFixed(0)}%で推定の ${pct(Math.expm1(-f.rmse), 0)}〜${pct(f.typical_error_pct, 0)} に収まる (ln価格の残差の標準偏差 ${f.rmse.toFixed(3)})`],
+    ['推定±20%以内の取引', (f.within_20pct * 100).toFixed(0) + '%', `平均絶対誤差 ${f.mae.toFixed(3)} (ln価格)`],
+    ...(f.holdout ? [['検証用2割での誤差', '±' + (f.holdout.typical_error_pct * 100).toFixed(0) + '%', `残差の標準偏差 ${f.holdout.rmse.toFixed(3)}、±20%以内 ${(f.holdout.within_20pct * 100).toFixed(0)}% (${f.holdout.n_test.toLocaleString()}件)`]] : []),
+    ['取引件数', f.n.toLocaleString(), `${f.params.year_from}〜${Math.min(f.params.year_to, META.year_max)}年`],
+  ].map(([k, v, n]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join('');
+  SEL = {};
+  renderCards();
+  const pa = f.pred_actual, lo = Math.min(...pa.pred, ...pa.actual) / 1e4, hi = Math.max(...pa.pred, ...pa.actual) / 1e4;
+  Plotly.react('chart_pa', [
+    { x: man(pa.pred), y: man(pa.actual), mode: 'markers', marker: { color: css('--s1'), size: 4, opacity: 0.35 }, hovertemplate: '予測 %{x:,.0f}万円<br>実績 %{y:,.0f}万円<extra></extra>' },
+    { x: [lo, hi], y: [lo, hi], mode: 'lines', line: { color: css('--text2'), width: 1.5, dash: 'dash' }, hoverinfo: 'skip' },
+  ], layout({ margin: { l: 60, r: 10, t: 6, b: 42 }, showlegend: false, hovermode: 'closest',
+    xaxis: { title: { text: '予測(万円)' }, type: 'log', dtick: 1, tickformat: ',.0f' }, yaxis: { title: { text: '実績(万円)' }, type: 'log', dtick: 1, tickformat: ',.0f' } }), CFG);
+
+  const sig = p => p < 0.001 ? '***' : p < 0.01 ? '**' : p < 0.05 ? '*' : '';
+  $('coef_table').innerHTML = '<tr><th>変数</th><th>係数</th><th>標準誤差</th><th>t値</th><th>p値</th><th>95%信頼区間</th><th>価格への効果</th></tr>' +
+    f.coefficients.filter(r => !r.name.startsWith('age=')).map(r => `<tr><td>${r.label}</td><td>${r.coef.toPrecision(4)}</td><td>${r.se.toPrecision(3)}</td><td>${r.t.toFixed(1)}</td>
+      <td>${r.p < 0.001 ? '<0.001' : r.p.toFixed(3)} ${sig(r.p)}</td><td>[${r.ci_low.toPrecision(3)}, ${r.ci_high.toPrecision(3)}]</td>
+      <td>${['const', 'ln_area', 'ln_land', 'ln_pop'].includes(r.name) ? (r.name.startsWith('ln_') ? '1%増で ' + pct(r.coef / 100, 2) : '—') : pct(Math.expm1(r.coef))}</td></tr>`).join('');
+  $('coef_note').textContent = `築年数(1年刻み、基準 築${f.base_age}年)の係数は上の「築年数と価格」のグラフを参照。標準誤差: ${f.se_type}。*** p<0.001, ** p<0.01, * p<0.05。区・取引年の固定効果は下のグラフに表示。`;
+
+  const h = f.residual_hist, mid = h.counts.map((_, i) => (h.edges[i] + h.edges[i + 1]) / 2);
+  Plotly.react('chart_resid', [{ x: mid, y: h.counts, type: 'bar', marker: { color: css('--s1') }, hovertemplate: '残差 %{x:.2f}: %{y:,}件<extra></extra>' }],
+    layout({ bargap: 0.08, xaxis: { title: { text: 'ln価格の残差 (0.1 ≒ 10%)' } }, yaxis: { title: { text: '件数' } }, hovermode: 'closest' }), CFG);
+
+}
+
+async function renderProfile() {
+  const my = seq;
+  const p = await api('/api/profile', { fit: fitParams(), vary: $('vary').value, property: propParams() });
+  if (my !== seq) return;
+  const fx = p.fixed, house = fitParams().kind === 'house';
+  const desc = [fx.ward + (fx.district ? ' ' + fx.district : ''), p.vary !== 'age' && `築${fx.age}年`, p.vary !== 'area' && `${fx.area}㎡`, house && p.vary !== 'land_area' && `土地${fx.land_area}㎡`,
+    p.vary !== 'station_min' && `駅${fx.station_min}分`, fx.layout, fx.structure, p.vary !== 'year' && `${fx.year}年取引`].filter(Boolean).join(' / ');
+  $('profile_title').textContent = `${p.label}と推定価格 — ${desc}`;
+  Plotly.react('chart_profile', [
+    { x: p.points.x, y: man(p.points.price), mode: 'markers', name: `近い条件の実取引 (${p.n_points.toLocaleString()}件)`,
+      marker: { color: css('--muted'), size: 5, opacity: 0.45 }, hoverinfo: 'skip' },
+    ...band(p.x, man(p.pi_low), man(p.pi_high), css('--s1'), '95%予測区間(個別物件)', '1f'),
+    ...band(p.x, man(p.ci_low), man(p.ci_high), css('--s1'), '95%信頼区間(平均)', '55'),
+    { x: p.x, y: man(p.price), mode: 'lines', name: '推定価格', line: { color: css('--s1'), width: 2.5 }, hovertemplate: '%{y:,.0f}万円<extra>推定価格</extra>' },
+  ], layout({ xaxis: { title: { text: p.label } }, yaxis: priceAxis }), CFG);
+  const i0 = 0, i1 = p.x.length - 1;
+  $('profile_note').textContent = `推定価格: ${p.label} ${p.x[i0]} のとき ${yen(p.price[i0])} → ${Math.round(p.x[i1])} のとき ${yen(p.price[i1])}。灰色の点は同じ区で固定条件に近い実取引(築年数±5年、面積0.8〜1.25倍、駅±5分、取引年±2年)。`;
+}
+
+async function renderForecast() {
+  const my = seq;
+  const [f, pop] = await Promise.all([
+    api('/api/forecast', { fit: fitParams(), property: propParams() }),
+    api('/api/population', { city: $('city').value }),
+  ]);
+  if (my !== seq) return;
+  Plotly.react('chart_forecast', [
+    ...band(f.years, man(f.combined_low), man(f.combined_high), css('--s1'), '95%区間(係数の誤差)', '33'),
+    { x: f.years, y: man(f.combined), mode: 'lines', name: '経年減価+人口効果', line: { color: css('--s1'), width: 2.5 }, hovertemplate: '%{y:,.0f}万円<extra>経年+人口</extra>' },
+    { x: f.years, y: man(f.age_only), mode: 'lines', name: '経年減価のみ', line: { color: css('--s2'), width: 2, dash: 'dash' }, hovertemplate: '%{y:,.0f}万円<extra>経年のみ</extra>' },
+    { x: f.years, y: man(f.pop_only), mode: 'lines', name: '人口効果のみ(築年数固定)', line: { color: css('--s3'), width: 2, dash: 'dot' }, hovertemplate: '%{y:,.0f}万円<extra>人口のみ</extra>' },
+  ], layout({ xaxis: { title: { text: '年' } }, yaxis: priceAxis }), CFG);
+  const last = f.years.length - 1, e = f.elasticity;
+  $('forecast_note').textContent = `${f.ward}: ${f.base_year}年の推定 ${yen(f.base_price)} → ${f.years[last]}年 ${yen(f.combined[last])} (${pct(f.combined[last] / f.base_price - 1)})。` +
+    `内訳: 経年減価 ${pct(f.age_only[last] / f.base_price - 1)}、人口効果 ${pct(f.pop_only[last] / f.base_price - 1)} (区人口 ${pct(f.population[last] / f.population[0] - 1)})。`;
+  $('elasticity').innerHTML = `<div class="tiles" style="margin:0"><div class="tile"><div class="k">人口が1%増えたときの価格変化</div><div class="v">${pct(e.coef / 100, 2)}</div>
+    <div class="n">弾力性 ${e.coef.toFixed(3)} (標準誤差 ${e.se.toFixed(3)}、95%CI [${e.ci_low.toFixed(2)}, ${e.ci_high.toFixed(2)}])</div></div>
+    <div class="tile"><div class="k">推定に使った取引</div><div class="v">${e.n.toLocaleString()}</div><div class="n">全都市プール、R² ${e.r2.toFixed(3)}</div></div></div>`;
+
+  const s = pop.wards[f.ward];
+  const act = s.year.map((y, i) => y <= pop.last_actual_year ? s.population[i] : null), prj = s.year.map((y, i) => y >= pop.last_actual_year ? s.population[i] : null);
+  Plotly.react('chart_pop', [
+    { x: s.year, y: act, mode: 'lines', name: '実績(国勢調査、補間)', line: { color: css('--s1'), width: 2 }, hovertemplate: '%{y:,.0f}人<extra>実績</extra>' },
+    { x: s.year, y: prj, mode: 'lines', name: '社人研 推計', line: { color: css('--s1'), width: 2, dash: 'dash' }, hovertemplate: '%{y:,.0f}人<extra>推計</extra>' },
+  ], layout({ yaxis: { title: { text: f.ward + ' の人口' }, tickformat: ',.0f', rangemode: 'tozero' } }), CFG);
+}
+
+async function renderYield() {
+  const my = seq, st = $('yield_status');
+  const costs = {};
+  for (const id of COST_IDS) if ($(id).value !== '') costs[id.slice(2)] = +$(id).value;
+  let y;
+  try {
+    if (fitParams().kind !== 'mansion') throw new Error('利回りの試算は中古マンションのみ対応しています。種別を切り替えてください。');
+    y = await api('/api/yield', { fit: fitParams(), property: propParams(), costs });
+  } catch (e) { st.textContent = e.message; st.className = 'err'; $('yield_tiles').innerHTML = ''; Plotly.purge('chart_yield_age'); Plotly.purge('chart_yield_ward'); return; }
+  if (my !== seq) return;
+  st.className = 'note';
+  st.textContent = y.rent_overridden ? '家賃は指定値を使用しています。'
+    : `想定家賃の根拠: ${y.ward} の ${y.rent_info.bracket} の平均家賃 ${Math.round(y.rent_info.ward_rent).toLocaleString()}円/月 (対象 ${y.rent_info.n_units.toLocaleString()}戸) に築年補正 ×${(y.rent / y.rent_info.ward_rent).toFixed(2)}。`;
+  const p1 = v => (v * 100).toFixed(1) + '%';
+  $('yield_tiles').innerHTML = [
+    ['表面利回り', p1(y.gross), '年間家賃 ÷ 価格'],
+    ['実質利回り(NOI)', p1(y.net), `年間の手残り ${yen(y.noi)}`],
+    ['推定価格', yen(y.price), `${y.ward} / 築${y.age}年 / ${y.area}㎡ / ${y.year}年水準`],
+    ['想定家賃', Math.round(y.rent).toLocaleString() + '円/月', y.rent_overridden ? '指定値' : '2023年 住宅・土地統計調査ベース'],
+  ].map(([k, v, n]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join('');
+  const c = y.curve, pc = a => a.map(v => v * 100);
+  Plotly.react('chart_yield_age', [
+    { x: c.age, y: pc(c.gross), mode: 'lines', name: '表面利回り', line: { color: css('--s1'), width: 2 }, hovertemplate: '%{y:.1f}%<extra>表面</extra>' },
+    { x: c.age, y: pc(c.net), mode: 'lines', name: '実質利回り', line: { color: css('--s2'), width: 2, dash: 'dash' }, hovertemplate: '%{y:.1f}%<extra>実質</extra>' },
+  ], layout({ xaxis: { title: { text: '築年数(年)' } }, yaxis: { title: { text: '利回り(%)' }, ticksuffix: '%', zeroline: true, zerolinecolor: css('--border') } }), CFG);
+  const w = [...y.wards].reverse();
+  $('chart_yield_ward').style.height = Math.max(320, w.length * 26 + 90) + 'px';
+  Plotly.react('chart_yield_ward', [
+    { y: w.map(r => r.ward), x: pc(w.map(r => r.gross)), type: 'bar', orientation: 'h', name: '表面利回り', marker: { color: css('--s1') },
+      customdata: w.map(r => [r.price / 1e4, r.rent]), hovertemplate: '%{y} 表面 %{x:.1f}%<br>価格 %{customdata[0]:,.0f}万円 / 家賃 %{customdata[1]:,.0f}円<extra></extra>' },
+    { y: w.map(r => r.ward), x: pc(w.map(r => r.net)), type: 'bar', orientation: 'h', name: '実質利回り', marker: { color: css('--s2') }, hovertemplate: '%{y} 実質 %{x:.1f}%<extra></extra>' },
+  ], layout({ barmode: 'group', bargap: 0.25, margin: { l: 130, r: 20, t: 10, b: 48 }, xaxis: { title: { text: '利回り(%)' }, ticksuffix: '%' },
+    yaxis: { tickfont: { size: 10 }, automargin: true }, hovermode: 'closest' }), CFG);
+}
+
+// 立地マップ: 地区の代表点に、区効果+地区効果(基準の区の平均との価格差)を色で示す。タブを開いたときだけ取得する
+let MAP, mapLayer;
+const DIVERGING = [[31, 95, 176], [127, 168, 221], [214, 212, 204], [240, 162, 126], [200, 69, 26]];  // 青 - 灰 - 橙
+function divergingColor(t) {  // t: -1〜1
+  const x = (Math.max(-1, Math.min(1, t)) + 1) * 2, i = Math.min(3, Math.floor(x)), f = x - i;
+  return 'rgb(' + DIVERGING[i].map((c, k) => Math.round(c + (DIVERGING[i + 1][k] - c) * f)).join(',') + ')';
+}
+let MAPDATA;
+async function renderMap() {
+  const my = seq;
+  $('map_note').textContent = '地図を読み込み中…';
+  const m = await api('/api/district-map', fitParams());
+  if (my !== seq) return;
+  MAPDATA = m;
+  renderCards();
+}
+function drawMap(w0) {
+  const m = MAPDATA;
+  if (!m) return;
+  if (m === drawMap.last && w0.key === drawMap.ward) return;  // 区の基準もデータも変わっていなければ描き直さない
+  const refit = m !== drawMap.last;
+  drawMap.last = m; drawMap.ward = w0.key;
+  if (!MAP) {
+    MAP = L.map('chart_map', { preferCanvas: true, scrollWheelZoom: false });
+    L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png', { maxZoom: 18,
+      attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a>' }).addTo(MAP);
+  }
+  if (mapLayer) mapLayer.remove();
+  const v = m.effect.map(e => 100 * Math.expm1(e - w0.ln)), abs = v.map(Math.abs).sort((a, b) => a - b);
+  const lim = Math.max(10, Math.ceil(abs[Math.floor(abs.length * 0.97)] / 10) * 10);  // 外れ値で色が潰れないよう上位3%は飽和させる
+  const order = m.n.map((_, i) => i).sort((a, b) => m.n[b] - m.n[a]);  // 小さい点が大きい点に隠れないよう件数の多い順に描く
+  mapLayer = L.layerGroup(order.map(i => L.circleMarker([m.lat[i], m.lon[i]], {
+    radius: Math.max(4, Math.min(13, 2 + Math.sqrt(m.n[i]) / 2)), fillColor: divergingColor(v[i] / lim), fillOpacity: 0.85, color: '#fff', weight: 1,
+  }).bindTooltip(`<b>${m.ward[i]} ${m.district[i]}</b><br>立地の効果 ${pct(v[i] / 100)}<br>うち地区分 ${pct(Math.expm1(m.district_effect[i]))} / ${m.n[i].toLocaleString()}件`))).addTo(MAP);
+  if (refit) { MAP.invalidateSize(); MAP.fitBounds(L.latLngBounds(m.lat.map((la, i) => [la, m.lon[i]])).pad(0.03)); }
+  $('map_lo').textContent = `−${lim}%以下`; $('map_hi').textContent = `+${lim}%以上`;
+  $('map_sub').textContent = `(区効果+地区効果。${w0.label}の平均 = ±0%)`;
+  $('map_note').textContent = `点は地区(町名)、大きさは取引件数、色は他の条件が同じ物件での価格差。カーソルを載せると値を表示(拡大は左上の＋−)。${m.district.length.toLocaleString()}地区` +
+    (m.n_missing ? `(位置を特定できない${m.n_missing.toLocaleString()}地区は省略)` : '') + '。位置: 国土交通省「位置参照情報」。';
+}
+
+// ページ上部の切り替え: 都市ごとの回帰分析 / 全国の相場比較
+document.querySelectorAll('.tabs.modes button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs.modes button').forEach(x => x.setAttribute('aria-selected', x === b));
+  $('mode-city').hidden = b.dataset.mode !== 'city'; $('mode-national').hidden = b.dataset.mode !== 'national';
+  if (b.dataset.mode === 'national' && !MARKET) renderMarket();  // 16都市ぶんの回帰を使うので、初めて開いたときに計算する
+  window.dispatchEvent(new Event('resize'));
+  if (MAP) MAP.invalidateSize();
+});
+
+// 都市ごとの分析で選んだ都市・種別を、全国の比較に連動させる(都市は強調表示、種別は集計条件)
+function syncNational(id) {
+  if (id === 'kind' && $('m_kind').value !== $('kind').value) {
+    $('m_kind').value = $('kind').value;
+    const h = $('m_kind').value === 'house'; $('m_area_min').value = h ? 70 : 15; $('m_area_max').value = h ? 130 : 30;
+    if (MARKET) renderMarket();  // 全国タブを未表示なら、開いたときに集計する
+  } else if (id === 'city' && MARKET && MARKET.rows.some(x => x.name === $('city').value)) {
+    $('m_series').value = $('city').value;
+    renderMarketYear();
+  }
+}
+
+let MARKET;
+async function renderMarket() {
+  const st = $('market_status'), q = {};
+  for (const id of MARKET_IDS) { const e = $(id); q[id.slice(2)] = e.type === 'number' ? +e.value : e.value; }
+  const house = q.kind === 'house';
+  $('m_lbl_area').textContent = house ? '建物面積(㎡) から' : '面積(㎡) から';
+  st.className = 'note'; st.textContent = '集計中…(初回は各都市の回帰を推定するため10秒ほどかかります)';
+  try { MARKET = await api('/api/market', q); }
+  catch (e) { st.textContent = e.message; st.className = 'err'; return; }
+  const m = MARKET, rows = m.rows, man1 = v => (v / 1e4).toFixed(1);
+  st.className = 'note';
+  st.textContent = `該当 ${m.n.toLocaleString()}件を${m.by === 'city' ? '都市' : '区'}別に集計。`;
+  const r = rows.slice().reverse();
+  $('chart_market').style.height = Math.max(320, r.length * 20 + 80) + 'px';
+  Plotly.react('chart_market', [{ y: r.map(x => x.name), x: r.map(x => x.unit_price / 1e4), type: 'bar', orientation: 'h', marker: { color: css('--s1') },
+    customdata: r.map(x => [x.price / 1e4, x.n]), hovertemplate: '%{y}: %{x:.1f}万円/㎡<br>中央値 %{customdata[0]:,.0f}万円 (%{customdata[1]:,}件)<extra></extra>' }],
+    layout({ margin: { l: 120, r: 20, t: 10, b: 48 }, xaxis: { title: { text: '㎡単価の中央値(万円/㎡)' } }, yaxis: { tickfont: { size: 10 }, automargin: true }, hovermode: 'closest' }), CFG);
+  fillSelect($('m_series'), rows.map(x => [x.name, x.name]), rows.some(x => x.name === $('m_series').value) ? $('m_series').value : $('city').value);
+  const sd = m.standard;
+  const stdHead = sd ? `<th>推定価格</th><th>想定家賃(月)</th><th>表面利回り</th>` : '';
+  $('market_table').innerHTML =
+    `<tr><th rowspan="2">${m.by === 'city' ? '都市' : '区'}</th><th colspan="6" class="grp">条件に合う実取引</th>${sd ? `<th colspan="3" class="grp">標準物件で揃えた比較(築${sd.age}年・${sd.area}㎡・駅徒歩${sd.station_min}分・${sd.year}年)</th>` : ''}</tr>` +
+    `<tr><th>件数</th><th>価格 中央値</th><th>25%〜75%</th><th>㎡単価</th><th>築年数</th><th>面積</th>${stdHead}</tr>` +
+    rows.map(x => `<tr data-name="${x.name}"><td>${x.name}</td><td>${x.n.toLocaleString()}</td><td>${yen(x.price)}</td><td>${yen(x.price_p25)}〜${yen(x.price_p75)}</td><td>${man1(x.unit_price)}万円</td>
+      <td>${x.age.toFixed(0)}年</td><td>${x.area.toFixed(0)}㎡</td>${sd ? `<td>${x.std_price ? yen(x.std_price) : '—'}</td><td>${x.std_rent ? Math.round(x.std_rent).toLocaleString() + '円' : '—'}</td><td>${x.std_gross ? (x.std_gross * 100).toFixed(1) + '%' : '—'}</td>` : ''}</tr>`).join('');
+  $('market_note').textContent = sd
+    ? `左側は国交省の実取引の集計です。取引される物件の築年数は都市で大きく違う(「築年数」列)ため、この中央値と家賃を割った利回りは出していません。右側は同じ物件(築${sd.age}年・${sd.area}㎡・駅徒歩${sd.station_min}分、条件欄の築年数・面積の中央)に揃えた比較で、価格は各都市の回帰モデルの推定、家賃は令和5年住宅・土地統計調査の区×面積区分の平均に同じ築年数の補正を掛けた値、利回りは区ごとに計算して取引件数で加重平均しています。家賃は入居中世帯の平均のため、新規募集より低めに出やすい点は同じです。`
+    : '価格は国交省の実取引(土地と建物)の中央値。戸建の家賃統計は対象戸数が少ないため、家賃・利回りは表示していません。';
+  renderMarketYear();  // 表を描いた後に呼ぶ(強調行の太字もここで付ける)
+  // 表の行・棒・線のどれをクリックしても、その地域を強調する
+  const highlight = name => { if (name && name !== $('m_series').value) { $('m_series').value = name; renderMarketYear(); } };
+  for (const tr of document.querySelectorAll('#market_table tr[data-name]')) tr.onclick = () => highlight(tr.dataset.name);
+  if (!renderMarket.bound) {
+    renderMarket.bound = true;
+    $('chart_market').on('plotly_click', e => highlight(e.points[0].y));
+    $('chart_market_year').on('plotly_click', e => highlight(e.points[0].data.name));
+  }
+}
+function renderMarketYear() {
+  const names = MARKET.rows.slice().reverse().map(x => x.name);  // 棒グラフでも強調する地域を色分けする
+  for (const tr of document.querySelectorAll('#market_table tr[data-name]')) tr.classList.toggle('hl', tr.dataset.name === $('m_series').value);
+  Plotly.restyle('chart_market', { 'marker.color': [names.map(n => n === $('m_series').value ? css('--s2') : css('--s1'))] });
+  // 全地域の線を薄い灰色で描き、選んだ1地域だけ色を付ける(16色を使い分けると判別できないため)
+  const hi = $('m_series').value || MARKET.rows[0].name;
+  const line = (x, on) => {
+    const ys = Object.keys(x.by_year).map(Number).filter(y => x.n_by_year[y] >= 20).sort((a, b) => a - b);
+    return { x: ys, y: ys.map(y => x.by_year[y] / 1e4), mode: on ? 'lines+markers+text' : 'lines', name: x.name,
+      text: ys.map((_, i) => i === ys.length - 1 ? x.name : ''), textposition: 'top left', textfont: { color: css('--text'), size: 12 },
+      line: { color: on ? css('--s2') : css('--muted'), width: on ? 2.5 : 1 }, opacity: on ? 1 : 0.55, marker: { size: 6 },
+      hovertemplate: `${x.name} %{x}年: %{y:.1f}万円/㎡<extra></extra>` };
+  };
+  const rows = MARKET.rows;
+  Plotly.react('chart_market_year', [...rows.filter(x => x.name !== hi).map(x => line(x, false)), ...rows.filter(x => x.name === hi).map(x => line(x, true))],
+    layout({ xaxis: { dtick: 2, tickangle: 0 }, yaxis: { title: { text: '㎡単価の中央値(万円/㎡)' }, rangemode: 'tozero' }, showlegend: false, hovermode: 'closest' }), CFG);
+}
+
+document.querySelectorAll('.tabs:not(.modes) button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs:not(.modes) button').forEach(x => x.setAttribute('aria-selected', x === b));
+  for (const t of ['profile', 'coef', 'forecast', 'yield', 'source']) $('tab-' + t).hidden = t !== b.dataset.tab;
+  window.dispatchEvent(new Event('resize'));
+});
+
+(async () => {
+  META = await api('/api/meta');
+  fillSelect($('city'), [...META.cities.map(c => [c.name, c.name]), [META.all_label, META.all_label + '(区効果+都市×年効果)']]);
+  fillSelect($('kind'), Object.entries(META.kinds));
+  fillSelect($('m_region'), [[META.all_label, '全国(データ取得済みの16都市)'], ...META.cities.map(c => [c.name, c.name + ' の区別'])]);
+  fillSelect($('m_kind'), Object.entries(META.kinds));
+  $('m_year_from').value = META.year_max - 3; $('m_year_to').value = META.year_max;
+  const years = []; for (let y = META.year_max; y >= META.year_min; y--) years.push([y, y + '年']);
+  fillSelect($('p_year'), years);
+  $('year_from').value = META.year_min; $('year_to').value = META.year_max;
+  syncControls();
+  for (const id of FIT_IDS) $(id).addEventListener('change', () => { syncControls(); refit(); syncNational(id); });
+  for (const id of PROP_IDS) $(id).addEventListener('change', async () => { if (id === 'p_ward') { $('p_district').value = ''; await loadDistricts(); } renderProfile(); renderForecast(); renderYield(); });
+  for (const id of MARKET_IDS) $(id).addEventListener('change', () => {
+    if (id === 'm_kind') { const h = $('m_kind').value === 'house'; $('m_area_min').value = h ? 70 : 15; $('m_area_max').value = h ? 130 : 30; }
+    renderMarket();
+  });
+  $('m_series').addEventListener('change', renderMarketYear);
+  for (const id of COST_IDS) $(id).addEventListener('change', renderYield);
+  $('vary').addEventListener('change', renderProfile);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', refit);
+  refit();
+})();
+</script>
+</body>
+</html>

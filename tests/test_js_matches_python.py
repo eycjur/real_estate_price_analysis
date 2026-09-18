@@ -1,0 +1,118 @@
+"""ブラウザ用の JS 実装(docs/js/)のテスト。
+
+- 回帰(model.js)が、参照実装(reap.model)と同じ推定結果を出すこと
+- 画面から呼ぶ分析処理(service.js)のテスト(tests/js/service.test.mjs)を、合成データの書き出し結果に対して実行
+"""
+
+import json
+import os
+import subprocess
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from reap import export
+from reap.model import Spec, age_effect, fit
+from test_model import synthetic
+
+ROOT = Path(__file__).resolve().parents[1]
+VARS = ["structure", "renovated", "dup"]  # dup は structure と完全に共線(JS でも同じ列が落ちること)
+
+
+def prepared(seed, city, ward_prefix=""):
+    df = synthetic(n=3000, seed=seed)
+    df["price"] = (df["price"] / 10000).round() * 10000  # 書き出し形式は1万円単位
+    df["area"] = df["area"].round()
+    df["ward"] = ward_prefix + df["ward"]
+    df["district_key"] = df["ward"] + " " + df["district_key"].str.split(" ").str[1]
+    return df.assign(city=city, kind="mansion", ward_code=lambda d: d["ward_code"] + (10 if ward_prefix else 0))
+
+
+@pytest.fixture(scope="module")
+def site(tmp_path_factory):
+    """合成データを本番と同じ形式(reap.export)で書き出したディレクトリ。"""
+    out = tmp_path_factory.mktemp("site")
+    tx = pd.concat([prepared(1, "X市"), prepared(2, "Y市", "Y")], ignore_index=True)
+    levels = {v: list(tx[v].value_counts().index) for v in VARS}
+    keys = tx["district_key"].drop_duplicates()
+    geo = pd.DataFrame({"district_key": keys[~keys.str.startswith("C区")], "lat": 35.0, "lon": 139.0})  # C区は位置不明
+    datasets = {}
+    for i, (city, g) in enumerate(tx.groupby("city", sort=False)):
+        info, blob = export.dataset(g, "mansion", levels, geo)
+        (out / f"m{i}.json").write_text(json.dumps(info), encoding="utf-8")
+        (out / f"m{i}.bin.gz").write_bytes(blob)
+        datasets[city] = {"file": f"m{i}", "n": len(g), "wards": info["wards"]}
+    wards = sorted(tx["ward"].unique())
+    meta = {
+        "cities": ["X市", "Y市"], "all_label": "全都市", "kinds": {"mansion": "中古マンション"},
+        "datasets": {"mansion": datasets}, "levels": {"mansion": levels}, "labels": {v: v for v in VARS},
+        "no_district": export.NO_DISTRICT, "district_lambda": 5.0, "year_min": 2015, "year_max": 2020,
+        "n_total": len(tx), "population_last_actual_year": 2020,
+        "variables": {"mansion": ["structure", "renovated"]},  # 画面側は共線な dup を使わない
+        "reference": {"mansion": {"ref_age": 10, "ref_area": 60, "ref_station": 8, "base_levels": {}}},
+        "population": {w: {"year": list(range(2010, 2051)), "population": [100000 + 500 * i * (j + 1) for i in range(41)]}
+                       for j, w in enumerate(wards)},
+        "rent": [{"ward": w, "area_min": 0, "area_max": 99, "rent": r, "n_units": 100}
+                 for w, r in [("A区", 50000.0), ("B区", 60000.0), ("YA区", 40000.0)]],  # C区 などは家賃統計なし
+        "rent_age": {"X市": {"age": [0.0, 40.0], "factor": [1.2, 0.8]}},
+        "population_elasticity": {"mansion": {"coef": 0.5, "se": 0.1, "ci_low": 0.3, "ci_high": 0.7, "n": 1,
+                                              "r2": 0.9, "se_type": "cluster(区)"}},
+    }
+    (out / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    return tx, out
+
+
+@pytest.fixture(scope="module")
+def result(site):
+    tx, out = site
+    run = subprocess.run(["node", str(ROOT / "tests/js/fit_check.mjs"), str(out)], capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+    return tx, json.loads(run.stdout)
+
+
+def test_service_js(site):
+    run = subprocess.run(["node", "--test", str(ROOT / "tests/js/service.test.mjs")], capture_output=True, text=True,
+                         env={**os.environ, "SITE_DIR": str(site[1])})
+    assert run.returncode == 0, run.stdout[-4000:] + run.stderr[-2000:]
+
+
+def spec(**kw):
+    return Spec(categoricals=tuple(VARS), district_lambda=5.0, ref_age=10, ref_area=60, ref_station=8, **kw)
+
+
+def compare(js, py):
+    assert set(js["coef"]) == set(py.design.names)
+    for name, b, se in zip(py.design.names, py.beta, py.se):
+        assert js["coef"][name] == pytest.approx([b, se], rel=1e-6, abs=1e-9), name
+    assert [js["r2"], js["adj_r2"], js["rmse"], js["mae"], js["district_df"]] == pytest.approx(
+        [py.r2, py.adj_r2, py.rmse, py.mae, py.district_df], rel=1e-9)
+    assert len(js["dropped"]) == len(py.design.dropped) == 1
+    for key, g in py.district_effects.items():
+        assert js["gamma"][key] == pytest.approx(g, rel=1e-6, abs=1e-10)
+
+
+def test_city_fit_with_district_l2_and_hc1(result):
+    tx, js = result
+    compare(js["city"], fit(tx[tx["city"] == "X市"], spec()))
+
+
+def test_pooled_fit_with_cluster_se(result):
+    tx, js = result
+    compare(js["pooled"], fit(tx, spec(fixed_effects="ward+cityyear"), cluster=True))
+
+
+def test_prediction_and_age_effect(result):
+    tx, js = result
+    f = fit(tx[tx["city"] == "X市"], spec())
+    row = pd.DataFrame([{"age": 23.0, "area": 72.0, "station_min": 5.0, "ward": "B区", "year": 2018, "city": "X市",
+                         "district_key": js["predict_district"], "structure": f.design.levels["structure"][0],
+                         "renovated": f.design.levels["renovated"][0], "dup": f.design.levels["dup"][0]}])
+    # JS 側は cats を水準番号で渡している(structure=1, renovated=0, dup=0)ので、同じ水準名に直す
+    levels = {v: list(tx[v].value_counts().index) for v in VARS}
+    row = row.assign(structure=levels["structure"][1], renovated=levels["renovated"][0], dup=levels["dup"][0])
+    mu, se = f.predict(row)
+    assert [js["predict"]["mu"], js["predict"]["se"]] == pytest.approx([mu[0], se[0]], rel=1e-6)
+    assert [js["age_effect"]["effect"], js["age_effect"]["se"]] == pytest.approx(age_effect(f, 12, 31), rel=1e-6)
+    assert js["age_effect_far"]["effect"] == pytest.approx(age_effect(f, 10, 200)[0], rel=1e-6)  # 最も近い築年数で代用

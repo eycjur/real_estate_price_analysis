@@ -1,0 +1,11 @@
+.venv/
+node_modules/
+__pycache__/
+.pytest_cache/
+# 公的データは各自で取得する(再配布しない)
+data/raw/
+data/processed/
+# ローカル作業用
+scripts/
+package.json
+package-lock.json
