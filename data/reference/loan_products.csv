@@ -1,0 +1,14 @@
+category,bank,product,rate_type,rate_min,rate_max,condition,as_of,url
+housing,三菱UFJ銀行,住宅ローン ずーっと一律優遇コース,変動,1.195,,店頭表示金利3.375%から完済まで年2.18%引下げ,2026-10-01,https://www.bk.mufg.jp/kariru/jutaku/yuuguu/index.html
+housing,三菱UFJ銀行,住宅ローン 最初に大きな優遇コース,固定10年,3.75,,店頭表示金利6.53%,2026-10-01,https://www.bk.mufg.jp/kariru/jutaku/yuuguu/index.html
+housing,三菱UFJ銀行,住宅ローン 全期間固定コース,全期間固定(31〜35年),4.35,,,2026-10-01,https://www.bk.mufg.jp/kariru/jutaku/yuuguu/index.html
+housing,auじぶん銀行,住宅ローン 全期間引下げプラン,変動,1.680,,新規借入・一般団信・物件価格の80%以下・50歳以下,2026-10-02,https://www.jibunbank.co.jp/products/homeloan/
+housing,auじぶん銀行,住宅ローン 当初期間引下げプラン,固定10年,3.515,,基準金利5.590%から当初10年間2.075%引下げ,2026-10-02,https://www.jibunbank.co.jp/products/homeloan/rate/
+housing,auじぶん銀行,住宅ローン 当初期間引下げプラン,固定35年,4.800,,,2026-10-02,https://www.jibunbank.co.jp/products/homeloan/rate/
+housing,住宅金融支援機構,フラット35(借入期間21〜35年),全期間固定(21〜35年),3.830,5.840,融資率9割以下・新機構団信付き。最低は最も多い金利と同じ,2026-10,https://www.simulation.jhf.go.jp/flat35/kinri/index.php/rates/top
+housing,住宅金融支援機構,フラット20(借入期間15〜20年),全期間固定(15〜20年),3.510,5.520,融資率9割以下・新機構団信付き,2026-10,https://www.simulation.jhf.go.jp/flat35/kinri/index.php/rates/top
+investment,オリックス銀行,投資用マンションローン 一般金利コース,変動,2.700,3.600,短期プライムレート基準。受付システム以外からの申込は+0.2%,2026-10-01,https://www.orixbank.co.jp/personal/1rm/interest.html
+investment,オリックス銀行,投資用マンションローン 優遇金利コース(Wプラン),変動,2.300,,年収などの条件あり,2026-10-01,https://www.orixbank.co.jp/personal/1rm/interest.html
+investment,オリックス銀行,不動産投資ローン 店頭表示金利,変動,4.425,,実際の適用金利は審査で決定,2026-10-01,https://www.orixbank.co.jp/personal/interest/
+investment,住宅金融支援機構,賃貸住宅建設融資 参考金利,35年固定,4.45,4.53,繰上返済制限あり4.45%/なし4.53%。アパート等の建設資金,2026-10,https://www.jhf.go.jp/loan/kinri/chintai.html
+investment,住宅金融支援機構,賃貸住宅建設融資 参考金利,15年固定,3.88,3.89,繰上返済制限あり3.88%/なし3.89%,2026-10,https://www.jhf.go.jp/loan/kinri/chintai.html

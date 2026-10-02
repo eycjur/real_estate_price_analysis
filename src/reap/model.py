@@ -22,7 +22,7 @@ CATEGORICALS = {
     "structure": "構造", "renovated": "改装", "layout": "間取り", "zoning": "用途地域", "far": "容積率",
     "future_use": "今後の利用目的", "source": "価格情報の種類", "quarter": "取引四半期",
     "land_shape": "土地の形状", "road_dir": "前面道路の方位", "road_type": "前面道路の種類",
-    "road_width": "前面道路の幅員", "frontage": "間口", "region": "地域",
+    "road_width": "前面道路の幅員", "frontage": "間口", "region": "地域", "far_usage": "容積率の消化率",
 }
 FE_LABEL = {"ward": "区", "year": "取引年", "_cy": "都市×年"}
 FE_PREFIX = tuple(f"{v}=" for v in FE_LABEL)

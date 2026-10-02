@@ -1,0 +1,60 @@
+"""人口タブの生データ(社人研の推計 Excel のシート / 国土数値情報の境界)の処理。"""
+
+import numpy as np
+import pandas as pd
+
+from reap import etl
+
+
+def test_ipss_sheet_side_by_side():
+    """令和5年推計: 男女計・男・女が横に並び、最上位は「90～94歳」「95歳～」。"""
+    y = ["2020年", "2050年"]
+    rows = [["将来の…"] + [None] * 11, ["13101", "千代田区"] + [None] * 10,
+            ["男女計", *y, None, "男", *y, None, "女", *y, None],
+            ["総数", 30, 20, None, "総数", 15, 10, None, "総数", 15, 10, None],
+            ["0～4歳", 10, 5, None, "0～4歳", 5, 2, None, "0～4歳", 5, 3, None],
+            ["90～94歳", 12, 9, None, "90～94歳", 6, 4, None, "90～94歳", 6, 5, None],
+            ["95歳～", 8, 6, None, "95歳～", 4, 4, None, "95歳～", 4, 2, None],
+            ["（再掲）0～14歳", 10, 5, None, "（再掲）0～14歳", 5, 2, None, "（再掲）0～14歳", 5, 3, None]]
+    d = pd.DataFrame(etl._ipss_sheet(pd.DataFrame(rows)), columns=["sex", "year", "age", "pop"])
+    assert set(d["sex"]) == {"m", "f"}  # 男女計は使わない(男+女で出す)
+    assert d[(d["sex"] == "m") & (d["year"] == 2050)].groupby("age")["pop"].sum().to_dict() == {0: 2, 90: 8}  # 90歳以上にまとまる
+    assert len(d) == 2 * 2 * 3  # 再掲・総数は読まない
+
+
+def test_ipss_sheet_stacked():
+    """平成30年推計以前: 男女計・男・女が縦に並び、最上位は「90歳以上」。"""
+    rows = [["男女計", "2015年", "2020年"], ["総数", 3, 4], ["0～4歳", 3, 4], [None, None, None],
+            ["男", "2015年", "2020年"], ["総数", 1, 2], ["0～4歳", 1, 2], ["90歳以上", 0, 1], [None, None, None],
+            ["女", "2015年", "2020年"], ["総数", 2, 2], ["0～4歳", 2, 2]]
+    d = pd.DataFrame(etl._ipss_sheet(pd.DataFrame(rows)), columns=["sex", "year", "age", "pop"])
+    assert d.set_index(["sex", "year", "age"])["pop"].to_dict() == {
+        ("m", 2015, 0): 1, ("m", 2020, 0): 2, ("m", 2015, 90): 0, ("m", 2020, 90): 1, ("f", 2015, 0): 2, ("f", 2020, 0): 2}
+
+
+def test_simplify():
+    line = np.array([[0, 0], [1, 0.0001], [2, 0], [3, 0.0002], [4, 0]], float)
+    assert etl._simplify(line, 0.001).tolist() == [[0, 0], [4, 0]]  # ほぼ一直線は端点だけ
+    corner = np.array([[0, 0], [1, 0], [2, 0], [2, 1], [2, 2]], float)
+    assert etl._simplify(corner, 0.001).tolist() == [[0, 0], [2, 0], [2, 2]]  # 角は残す
+
+
+def test_census_age(tmp_path):
+    """令和7年国勢調査 第2-7表: 男女の行・5歳階級の列。2000年市区町村の組替行(識別コード9)と年齢不詳は使わない。"""
+    items = ["00_総数", "01_0～4歳", "19_90～94歳", "20_95～99歳", "21_100歳以上", "22_年齢「不詳」", "R1_（再掲）15歳未満"]
+    head = [None] * 9
+    rows = [["【不詳補完値】"] + [None] * 15, head + ["人口"] * 7, head + ["年齢"] * 7, head + items, head + [1] * 7, head + ["人"] * 7,
+            ["国籍総数か日本人", "男女", "地域識別コード", None, None, None, None, "2025年_地域コード", "地域名"] + [None] * 7]
+    def row(nat, sex, kind, code, vals):  # noqa: E306
+        return [nat, sex, kind, None, None, 2000, None, code, "x"] + vals
+    v = [100, 10, 3, 2, 1, 5, 10]
+    rows += [row("0_国籍総数", s, k, c, v) for s in ("0_総数", "1_男", "2_女") for k, c in [("a", "00000"), ("3", "07204"), ("9", "07999")]]
+    rows += [row("1_うち日本人", "1_男", "a", "00000", [1] * 7)]
+    rows += [row("0_国籍総数", s, "3", c, v) for s in ("1_男", "2_女") for c in etl.HAMADORI[1:]]
+    p = tmp_path / "c.xlsx"
+    pd.DataFrame(rows).to_excel(p, header=False, index=False)
+    d = etl.load_census_age(p)
+    nat = d[(d["code"] == "00000") & (d["sex"] == "m")].set_index("age")["population"].to_dict()
+    assert nat == {0: 10, 90: 6} and set(d["year"]) == {2025}  # 90歳以上をまとめ、不詳・再掲・日本人は使わない
+    hama = d[(d["code"] == "07999") & (d["sex"] == "f")].set_index("age")["population"].to_dict()
+    assert hama == {0: 10 * 13, 90: 6 * 13}  # 浜通り13市町村の合計(識別コード9の行は使わない)

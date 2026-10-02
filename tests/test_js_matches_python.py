@@ -61,6 +61,58 @@ def site(tmp_path_factory):
                                               "r2": 0.9, "se_type": "cluster(区)"}},
     }
     (out / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    # 金利と不動産価格指数(2015〜2020年、月次)。金利(短期プライムレートのみ)は年ごとに 1.0, 1.1, ... %、指数は 2010年=100 で毎月 +1
+    months = [f"{y}-{m:02d}" for y in range(2015, 2021) for m in range(1, 13)]
+    rates = {
+        "from": "2015-01", "month": months, "labels": export.RATE_LABELS,
+        "rates": {k: [1.0 + (int(mo[:4]) - 2015) / 10 if k == "prime_short" else None for mo in months] for k in export.RATE_LABELS},
+        "rpi": {"全国": {c: [100 + i for i in range(len(months))] for c in ("total", "house", "mansion")}},
+        "rpi_region": {"X市": "全国", "Y市": "全国", "全都市": "全国"},
+    }
+    (out / "rates.json").write_text(json.dumps(rates), encoding="utf-8")
+    # 市況(2024〜2025年の月次)。首都圏: 成約100・新規登録400・在庫1200件/月、㎡単価は 成約50+i・新規60+i・在庫65+i(i=月の番号)
+    # 城東地区: 成約50・新規100・在庫300。土地は首都圏だけで㎡単価なし(価格のみ)。価格帯は2区分×8四半期
+    mo = [f"{y}-{m:02d}" for y in (2024, 2025) for m in range(1, 13)]
+    st = lambda n, p=None: {"n": [n] * 24, **({"unit_price": [p + i for i in range(24)]} if p is not None else {}), "age": [20.0] * 24}  # noqa: E731
+    market = {
+        "kinds": {"mansion": "中古マンション", "land": "土地"}, "status": export.REINS_STATUS,
+        "reins": {"month": mo, "regions": ["首都圏", "東京都 城東地区"], "region_notes": {"首都圏": "", "東京都 城東地区": "台東区、…"},
+                  "series": {"mansion": {"首都圏": {"sold": st(100, 50), "new": st(400, 60), "stock": st(1200, 65)},
+                                         "東京都 城東地区": {"sold": st(50, 80), "new": st(100, 90), "stock": st(300, 95)}},
+                             "land": {"首都圏": {k: {"n": [n] * 24, "price": [3000.0] * 24, "age": [None] * 24}
+                                                for k, n in [("sold", 10), ("new", 20), ("stock", 60)]}}},
+                  "quarter": [f"{y}-Q{q}" for y in (2024, 2025) for q in range(1, 5)], "bands": {"mansion": ["~1000", "1000~"]},
+                  "band_n": {"mansion": {"首都圏": {"sold": [[10] * 8, [20] * 8], "new": [[40] * 8, [40] * 8], "stock": [[100] * 8, [50] * 8]}}}},
+        "sales_index": {"month": mo, "labels": export.SALES_INDEX_LABELS, "regions": ["全国"],
+                        "series": {"全国": {**{k: [100.0] * 24 for k in export.SALES_INDEX_LABELS},
+                                          **{f"{k}_n": [10] * 24 for k in export.SALES_INDEX_LABELS}}}},
+        "starts": {"month": mo, "labels": export.STARTS_LABELS, "regions": ["全国"],
+                   "series": {"全国": {"total": [30] * 24, "owner": [10] * 24, "rental": [10] * 24, "sale_mansion": [5] * 24,
+                                     "sale_house": [5] * 24, "company": [0] * 24}}},
+    }
+    (out / "market.json").write_text(json.dumps(market), encoding="utf-8")
+    # ローン: 機構の賃貸住宅融資は2020-07〜2021-06(金利の系列より後まである)、日銀の新規貸出は4四半期
+    cm = [f"{y}-{m:02d}" for y, ms in ((2020, range(7, 13)), (2021, range(1, 7))) for m in ms]
+    loan = {
+        "chintai": {"month": cm, "labels": export.CHINTAI_LABELS, "rates": {k: [2.0] * 12 for k in export.CHINTAI_LABELS}},
+        "boj_loans": {"quarter": ["2020-Q1", "2020-Q2", "2020-Q3", "2020-Q4"], "labels": export.BOJ_LOAN_LABELS,
+                      "values": {"housing_new": [1, 2, 3, 4], "rental_new": [None, 1, 1, 1]}},
+        "products": [{"category": "housing", "bank": "A銀行", "product": "変動", "rate_type": "変動", "rate_min": 0.5, "rate_max": None,
+                      "condition": None, "as_of": "2021-06-01", "url": "https://example.com/"}],
+        "rate_type_share": {"survey": ["第1回"], "variable_pct": [70.0], "fixed_period_pct": [20.0], "fixed_full_pct": [10.0], "note": [None]},
+    }
+    (out / "loan.json").write_text(json.dumps(loan), encoding="utf-8")
+    # 人口: 年 2015/2020/2050 × 年齢(5歳階級の下限) 0/15/65/75。男女とも 2020年は 100/200/60/40 人(区)。
+    # 区は2015年なし・2050年に半減、全国・都・23区は区の10倍で一定
+    ages, years = [0, 15, 65, 75], [2015, 2020, 2050]
+    base = [100, 200, 60, 40]
+    ward = [None] * 4 + base + [v // 2 for v in base]
+    big = [v * 10 for v in base] * 3
+    pop = {"years": years, "ages": ages, "actual_last": 2020, "names": {"00000": "全国", "13000": "東京都", "13100": "東京23区", "13101": "千代田区"},
+           "major": ["13100"], "prefs": ["13000"], "nation": "00000", "map_areas": ["13101"],
+           "pop": {"00000": {"m": big, "f": big}, "13000": {"m": big, "f": big}, "13100": {"m": big, "f": big}, "13101": {"m": ward, "f": ward}}}
+    (out / "population.json").write_text(json.dumps(pop, ensure_ascii=False), encoding="utf-8")
+    (out / "boundaries.json").write_text(json.dumps({"13101": [[[139.7, 35.6], [139.8, 35.6], [139.8, 35.7]]]}), encoding="utf-8")
     return tx, out
 
 

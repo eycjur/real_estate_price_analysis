@@ -6,7 +6,7 @@ let loadBytes = async path => {
   return r.arrayBuffer();
 };
 /** テスト用: データの読み込み方を差し替える。fn(path) → ArrayBuffer */
-export function setLoader(fn) { loadBytes = fn; cache.clear(); metaPromise = null; }
+export function setLoader(fn) { loadBytes = fn; cache.clear(); metaPromise = null; ratesPromise = null; marketPromise = null; loanPromise = null; popPromise = null; geoPromise = null; }
 
 const TYPES = { uint8: Uint8Array, uint16: Uint16Array, uint32: Uint32Array };
 const cache = new Map();
@@ -19,6 +19,33 @@ async function gunzip(buf) {
 
 export function loadMeta() {
   return metaPromise ??= loadJson('meta.json');
+}
+
+let ratesPromise = null;
+/** 金利と不動産価格指数の月次系列(docs/data/rates.json)。 */
+export function loadRates() {
+  return ratesPromise ??= loadJson('rates.json');
+}
+
+let marketPromise = null;
+/** 市況(レインズ・既存住宅販売量指数・着工統計)の系列(docs/data/market.json)。 */
+export function loadMarket() {
+  return marketPromise ??= loadJson('market.json');
+}
+
+let loanPromise = null;
+/** ローン(機構の賃貸住宅融資の金利・日銀の新規貸出額・商品の金利・金利タイプ別の利用割合)(docs/data/loan.json)。 */
+export function loadLoan() {
+  return loanPromise ??= loadJson('loan.json');
+}
+
+let popPromise = null, geoPromise = null;
+/** 男女・5歳階級別の人口(docs/data/population.json)と、地図用の市区町村の境界(boundaries.json)。 */
+export function loadPopulation() {
+  return popPromise ??= loadJson('population.json');
+}
+export function loadBoundaries() {
+  return geoPromise ??= loadJson('boundaries.json');
 }
 
 /** 取引データに、回帰で毎回使う対数などの派生列を足す。 */
