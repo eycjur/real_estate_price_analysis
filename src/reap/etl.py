@@ -11,6 +11,8 @@
         「建築着工統計」(都道府県別・利用関係別の新設住宅着工戸数)
 - 人口(人口タブ): 社人研の推計を全都道府県・男女5歳階級別に。地図の境界は国土数値情報「行政区域」(N03)
 - ローン: 住宅金融支援機構「賃貸住宅融資 参考金利の推移」、日本銀行「貸出先別貸出金」(住宅資金・個人による貸家業の新規貸出)
+- 長期推移: 国土数値情報「地価公示」(住宅地の地点の1983年からの価格)、総務省統計局「消費者物価指数」長期時系列(都市別の家賃、
+            全国の物価)、BIS 経由の日本不動産研究所「市街地価格指数」(住宅地、1955年〜)
 
 使い方: uv run python -m reap.etl
 """
@@ -461,21 +463,26 @@ def _boj_csv(path: Path) -> pd.DataFrame:
     return d.set_index("month").apply(_num)
 
 
-def _boj_prime(path: Path) -> pd.DataFrame:
-    """日銀「長・短期プライムレート(主要行)の推移」(HTML)。改定日の表を、各月末時点の適用金利にする。"""
-    text = path.read_text(encoding="utf-8")
+def _boj_prime(*paths: Path) -> pd.DataFrame:
+    """日銀「長・短期プライムレート(主要行)の推移」(HTML。過去の表 primeold・primeold2 も渡せる)。改定日の表を、各月末時点の適用金利にする。
+
+    現行と1989〜2000年の表は 実施日・短プラ(最頻値・最高値・最低値)・長プラ、1966〜1988年の表は 実施日・短期貸出金利・長プラ の列。
+    短期プライムレートは1989年1月から(それより前の短期貸出金利は使わない)。
+    """
     rows = []
-    for tr in re.findall(r"<tr.*?</tr>", re.search(r"<table.*?</table>", text, re.S).group(0), re.S):
-        cells = [html.unescape(re.sub(r"<[^>]+>", "", c)).strip() for c in re.findall(r"<t[hd].*?</t[hd]>", tr, re.S)]
-        m = re.search(r"（(\d{4})）年\s*(\d+)月", cells[0]) if cells else None
-        if not m or len(cells) < 5:
-            continue  # 見出し行など
-        vals = [re.match(r"[\d.]+", c) for c in cells[1:5]]  # 短プラ 最頻・最高・最低、長プラ。「↓」は据え置き
-        rows.append((f"{m.group(1)}-{int(m.group(2)):02d}", *[float(v.group(0)) if v else np.nan for v in vals]))
-    d = pd.DataFrame(rows, columns=["month", "prime_short", "prime_short_max", "prime_short_min", "prime_long"]).ffill()
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        for tr in re.findall(r"<tr.*?</tr>", re.search(r"<table.*?</table>", text, re.S).group(0), re.S):
+            cells = [html.unescape(re.sub(r"<[^>]+>", "", c)).strip() for c in re.findall(r"<t[hd].*?</t[hd]>", tr, re.S)]
+            m = re.search(r"（(\d{4})）年\s*(\d+)月", cells[0]) if cells else None
+            if not m or len(cells) not in (3, 5):
+                continue  # 見出し行など
+            num = lambda c: float(v.group(0)) if (v := re.match(r"[\d.]+", c)) else np.nan  # noqa: E731  「↓」は据え置き、「--」は値なし
+            rows.append((f"{m.group(1)}-{int(m.group(2)):02d}", num(cells[1]) if len(cells) == 5 else np.nan, num(cells[-1])))
+    d = pd.DataFrame(rows, columns=["month", "prime_short", "prime_long"]).ffill()
     d = d.groupby("month").last()  # 同じ月に複数回改定されたら月末の値
     months = pd.period_range(d.index.min(), d.index.max(), freq="M").strftime("%Y-%m")
-    return d.reindex(months).ffill()[["prime_short", "prime_long"]]
+    return d.reindex(months).ffill()
 
 
 def _jgb(path: Path) -> pd.Series:
@@ -714,6 +721,145 @@ def load_loan() -> tuple[pd.DataFrame, pd.DataFrame]:
     return chintai, boj
 
 
+# 長期推移タブ。都市は市区町村コード(政令市は市のコード、東京23区は 13100)で持つ
+LONG_CITY_CODES = {"01100": "札幌市", "04100": "仙台市", "11100": "さいたま市", "12100": "千葉市", "13100": "東京23区", "14100": "横浜市",
+                   "14130": "川崎市", "14150": "相模原市", "23100": "名古屋市", "26100": "京都市", "27100": "大阪市", "27140": "堺市",
+                   "28100": "神戸市", "34100": "広島市", "40100": "北九州市", "40130": "福岡市"}
+KOJI_RESIDENTIAL = "000"  # 地価公示の用途区分: 住宅地
+KOJI_FIRST_YEAR = 1983    # 国土数値情報の地価公示に載る価格の履歴の最初の年
+KOJI_MIN_POINTS = 10      # 前年と比べられる地点がこれより少ない年より前は指数を作らない
+BIS_AREAS = {3: "jrei_tokyo", 4: "jrei_six", 9: "jrei_nation"}  # BIS の COVERED_AREA: 東京区部・六大都市・全国(223都市)
+
+
+def _long_city(code: str) -> str | None:
+    """政令市の区(14131 など)と東京23区(13101〜13123)の市区町村コードを、市(東京23区)にまとめる。区は市のコードの後ろ29番以内。"""
+    c = int(code)
+    base = max((int(k) for k in LONG_CITY_CODES if c // 1000 == int(k) // 1000 and int(k) < c), default=None)
+    return LONG_CITY_CODES[f"{base:05d}"] if base is not None and c - base < 30 else None
+
+
+def _koji_points(path: Path) -> pd.DataFrame:
+    """国土数値情報「地価公示」(L01)の住宅地の地点。列: city、price_<年>(円/㎡、その年に調査がなければ 0)、cont_<年>(前年からの継続地点か)。
+
+    属性は L01_062 から年ごとの価格が並び(1983年〜)、その後ろに前年からの属性移動(14桁、1桁目が選定状況で 1 = 継続、2 = 標準地番号の変更)が続く。
+    """
+    with zipfile.ZipFile(path) as z:
+        name = next(n for n in z.namelist() if n.endswith(".geojson"))
+        props = pd.DataFrame([f["properties"] for f in json.loads(z.read(name))["features"]])
+    ny = len(props["L01_061"].iloc[0])  # 選定年次ビット: 1983年から最新年まで1文字ずつ
+    years = range(KOJI_FIRST_YEAR, KOJI_FIRST_YEAR + ny)
+    city = props["L01_001"].astype(str).map(_long_city)
+    d = props[(props["L01_002"] == KOJI_RESIDENTIAL) & city.notna()]
+    out = {"city": city[d.index]}
+    for i, y in enumerate(years):
+        out[f"price_{y}"] = _num(d[f"L01_{62 + i:03d}"]).fillna(0)
+        if i:
+            out[f"cont_{y}"] = d[f"L01_{62 + ny + i - 1:03d}"].astype(str).str[0].isin(["1", "2"])
+    return pd.DataFrame(out)
+
+
+def koji_index(points: pd.DataFrame) -> pd.DataFrame:
+    """都市ごとの住宅地の地価指数(連鎖指数)。毎年、前年から継続して調査された地点の価格の変化率を対数平均してつなぐ。
+
+    地点の入れ替えの影響を受けないが、元データは最新年に残っている地点だけなので、古い年ほど地点が少ない。
+    level は最新年の全地点の平均価格(円/㎡)を指数で過去に延ばしたもの(地点の構成を最新年に揃えた価格の目安)。
+    """
+    years = sorted(int(c[6:]) for c in points.columns if c.startswith("price_"))
+    rows = []
+    for city, g in points.groupby("city"):
+        logret, n = {}, {}
+        for y in years[1:]:
+            a, b = g[f"price_{y - 1}"], g[f"price_{y}"]
+            ok = (a > 0) & (b > 0) & g[f"cont_{y}"]
+            n[y] = int(ok.sum())
+            logret[y] = float(np.log(b[ok] / a[ok]).mean()) if n[y] else np.nan
+        short = [y for y in years[1:] if n[y] < KOJI_MIN_POINTS]
+        start = max(short) if short else years[0]
+        idx, v = {}, 0.0
+        for y in years:
+            if y > start:
+                v += logret[y]
+            idx[y] = np.exp(v) if y >= start else np.nan
+        last = years[-1]
+        level = g.loc[g[f"price_{last}"] > 0, f"price_{last}"].mean()
+        rows += [(city, y, idx[y] / idx[last] * 100, n.get(y, 0), idx[y] / idx[last] * level) for y in years]
+    return pd.DataFrame(rows, columns=["city", "year", "land", "land_n", "land_level"])
+
+
+def _cpi_city(path: Path, item: str = "持家の帰属家賃を除く家賃") -> pd.Series:
+    """消費者物価指数 長期時系列の都市別中分類指数(Excel)から、ある分類の年平均を取り出す(index = 年)。"""
+    toc = pd.read_excel(path, sheet_name="目次", header=None)
+    sheet = toc.loc[toc[1].astype(str).str.strip() == item, 0].iloc[0]
+    d = pd.read_excel(path, sheet_name=sheet, header=None).astype(str)
+    head = next(i for i in d.index if d.loc[i].str.fullmatch(r"\d{4}年").any())
+    avg = next(i for i in d.index if (d.loc[i].str.strip() == "年平均").any())  # 最初の「年平均」が指数(後ろは前月比・前年同月比)
+    years = d.loc[head].str.extract(r"^(\d{4})年$")[0]
+    s = pd.Series(_num(d.loc[avg]).to_numpy(), index=_num(years).to_numpy())
+    return s[s.index.notna() & s.notna()].rename(lambda y: int(y))
+
+
+def _cpi_nation(path: Path) -> pd.Series:
+    """消費者物価指数 長期時系列(CSV)の全国 持家の帰属家賃を除く総合の年平均(index = 年)。"""
+    d = pd.read_csv(path, encoding="cp932", dtype=str)
+    year = d.iloc[:, 0].str.strip()
+    d = d[year.str.fullmatch(r"\d{4}")]
+    return pd.Series(_num(d["持家の帰属家賃を除く総合"]).to_numpy(), index=year[d.index].astype(int)).dropna()
+
+
+def _bis_land(path: Path) -> pd.DataFrame:
+    """BIS の日本の住宅地価格指数(日本不動産研究所「市街地価格指数」、半年ごと)から、各年3月末の値を取り出す。"""
+    d = pd.read_csv(path)
+    d = d[(d["RE_TYPE"] == "L") & d["COVERED_AREA"].isin(BIS_AREAS) & d["TIME_PERIOD"].str.endswith("-Q1")]
+    d = d.assign(year=d["TIME_PERIOD"].str[:4].astype(int), series=d["COVERED_AREA"].map(BIS_AREAS))
+    return d.pivot(index="year", columns="series", values="OBS_VALUE").reindex(columns=list(BIS_AREAS.values()))
+
+
+def _boj_api_monthly(path: Path) -> pd.Series:
+    """日銀 時系列統計データ検索サイト API (getDataCode, format=csv) の月次の1系列(index = 「1882-10」)。"""
+    lines = path.read_text(encoding="cp932").splitlines()
+    head = next(i for i, ln in enumerate(lines) if ln.startswith("SERIES_CODE,"))
+    d = pd.read_csv(io.StringIO("\n".join(lines[head:])), dtype=str)
+    month = d["SURVEY_DATES"].str[:4] + "-" + d["SURVEY_DATES"].str[4:6]
+    return pd.Series(_num(d["VALUES"]).to_numpy(), index=month).dropna()
+
+
+def load_long_rates() -> pd.DataFrame:
+    """金利の長期の月次系列: 公定歩合(基準割引率および基準貸付利率)、コールレート(有担保・無担保)、プライムレート、10年国債、貸出約定平均金利。"""
+    raw, rates = RAW / "long", RAW / "rates"
+    fm02, ir04 = _boj_csv(rates / "boj_fm02.csv"), _boj_csv(rates / "boj_ir04.csv")
+    col = lambda d, key: d[[c for c in d.columns if key in c][0]]  # noqa: E731
+    prime = _boj_prime(raw / "boj_primeold.html", raw / "boj_primeold2.html", rates / "boj_prime.html")
+    d = pd.concat({
+        "policy_rate": _boj_api_monthly(raw / "boj_ir01_api.csv"),
+        "call_collateral": _boj_api_monthly(raw / "boj_fm02_api.csv"),
+        "call_rate": col(fm02, "月平均"),
+        "prime_long": prime["prime_long"], "prime_short": prime["prime_short"],
+        "jgb10": _jgb(rates / "jgbcm_all.csv"),
+        "lend_stock_long": col(ir04, "ストック/長期"),
+    }, axis=1).sort_index()
+    d = d.reindex(pd.period_range(d.index.min(), d.index.max(), freq="M").strftime("%Y-%m"))
+    print(f"long rates: {d.index[0]}〜{d.index[-1]} " + str({c: d[c].first_valid_index() for c in d.columns}))
+    return d.rename_axis("month").reset_index()
+
+
+def load_long_term() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """都市別(地価公示の地価指数・消費者物価の家賃指数)と全国共通(物価・市街地価格指数)の年次系列。"""
+    raw = RAW / "long"
+    land = koji_index(pd.concat([_koji_points(p) for p in sorted(raw.glob("L01-*_GML.zip"))], ignore_index=True))
+    rent = pd.concat([_cpi_city(raw / f"cpi_{c}.xlsx").rename("rent").rename_axis("year").reset_index().assign(city=n)
+                      for c, n in LONG_CITY_CODES.items()], ignore_index=True)
+    missing = sorted(set(LONG_CITY_CODES.values()) - set(land["city"]))
+    if missing:
+        raise SystemExit(f"地価公示に都市がありません: {missing}")
+    city = land.merge(rent, on=["city", "year"], how="outer").sort_values(["city", "year"]).reset_index(drop=True)
+    nation = pd.concat([_cpi_nation(raw / "cpi_nation.csv").rename("cpi"), _bis_land(raw / "bis_dpp_jp.csv")], axis=1)
+    nation = nation.rename_axis("year").sort_index().reset_index()
+    span = city.dropna(subset=["land"]).groupby("city")["year"].min().to_dict()
+    print(f"long term: 地価公示の指数の開始年 {span}, 家賃 {int(rent['year'].min())}〜{int(rent['year'].max())}, "
+          f"全国 {int(nation['year'].min())}〜{int(nation['year'].max())}")
+    return city, nation
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     tx = clean(load_transactions())
@@ -743,6 +889,10 @@ def main() -> None:
     chintai, boj_loans = load_loan()
     chintai.to_parquet(OUT / "chintai_rates.parquet", index=False)
     boj_loans.to_parquet(OUT / "boj_loans.parquet", index=False)
+    long_city, long_nation = load_long_term()
+    long_city.to_parquet(OUT / "long_city.parquet", index=False)
+    long_nation.to_parquet(OUT / "long_nation.parquet", index=False)
+    load_long_rates().to_parquet(OUT / "long_rates.parquet", index=False)
     print(tx.groupby(["kind", "city"]).size().unstack(0))
 
 

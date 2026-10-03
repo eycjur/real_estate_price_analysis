@@ -113,6 +113,21 @@ def site(tmp_path_factory):
            "pop": {"00000": {"m": big, "f": big}, "13000": {"m": big, "f": big}, "13100": {"m": big, "f": big}, "13101": {"m": ward, "f": ward}}}
     (out / "population.json").write_text(json.dumps(pop, ensure_ascii=False), encoding="utf-8")
     (out / "boundaries.json").write_text(json.dumps({"13101": [[[139.7, 35.6], [139.8, 35.6], [139.8, 35.7]]]}), encoding="utf-8")
+    # 長期推移(2014〜2021年)。X市: 地価は2015年から毎年2倍(最新2021年=100)、家賃は毎年 +10、物価は2020年まで毎年 +5%(2021年は未公表)。
+    # Y市は家賃がない。市街地価格指数(東京区部)は2016年から。金利は2020年の12か月
+    yrs = list(range(2014, 2022))
+    land_x = [None] + [100 / 2 ** (2021 - y) for y in yrs[1:]]
+    long = {
+        "years": yrs, "cities": ["X市", "Y市"], "land_last_year": 2021, "rent_survey_year": 2020,
+        "land": {"X市": land_x, "Y市": land_x}, "land_n": {"X市": [0] + [10] * 7, "Y市": [0] + [10] * 7},
+        "land_level": {"X市": 200000, "Y市": 100000},
+        "rent": {"X市": [100 + 10 * i for i in range(8)], "Y市": [None] * 8}, "rent_level": {"X市": 60000},
+        "nation": {"cpi": [100 * 1.05 ** i for i in range(7)] + [None], "jrei_six": [50.0] * 8,
+                   "jrei_tokyo": [None, None] + [10.0 * (i + 1) for i in range(6)], "jrei_nation": [40.0] * 8},
+        "rates": {"month": months[-12:], "labels": export.LONG_RATE_LABELS,
+                  "values": {k: [1.5 if k == "prime_short" else None] * 12 for k in export.LONG_RATE_LABELS}},
+    }
+    (out / "long.json").write_text(json.dumps(long, ensure_ascii=False), encoding="utf-8")
     return tx, out
 
 

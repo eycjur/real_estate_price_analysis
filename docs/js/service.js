@@ -1,7 +1,7 @@
-// 画面から呼ぶ分析処理 (モデル推定のキャッシュ、断面プロファイル、将来予測、利回り、金利と価格指数、相場、市況、ローン、人口)。
+// 画面から呼ぶ分析処理 (モデル推定のキャッシュ、断面プロファイル、将来予測、利回り、金利と価格指数、相場、市況、ローン、人口、長期推移)。
 // Web Worker (worker.js) の中で動く。
 
-import { loadAll, loadBoundaries, loadDataset, loadLoan, loadMarket, loadMeta, loadPopulation, loadRates } from './data.js';
+import { loadAll, loadBoundaries, loadDataset, loadLoan, loadLong, loadMarket, loadMeta, loadPopulation, loadRates } from './data.js';
 import { FE_PREFIX, ageEffect, coef, fit, predict, predictRows, table } from './model.js';
 import { interp, linspace, median, quantile, rng, sample } from './stats.js';
 
@@ -601,6 +601,77 @@ export async function populationGeo() {
   return loadBoundaries();
 }
 
+/** 長期推移: 都市の地価(地価公示)・家賃(消費者物価)・物価と、市街地価格指数・不動産価格指数(マンション)を base年=100 にそろえる。
+ *  real なら全国の物価(持家の帰属家賃を除く総合)で割った実質値。基準年に値のない系列と、物価の値がない年(最新年など)の実質値は null。
+ *  ratio = 地価 ÷ 家賃(base年=100。名目・実質で同じ)。都市の比較は metric('land' | 'rent' | 'ratio')の線と、基準年→最新の倍率の表。 */
+export async function longTerm({ city, base = 1985, real = false, metric = 'land' }) {
+  const [L, R] = await Promise.all([loadLong(), loadRates()]);
+  if (!L.land[city]) throw new Error(`長期推移の都市が不正です: ${city}`);
+  const bi = L.years.indexOf(base);
+  if (bi < 0) throw new Error(`基準年が不正です: ${base}`);
+  if (!['land', 'rent', 'ratio'].includes(metric)) throw new Error(`比較の指標が不正です: ${metric}`);
+  const cpi = L.nation.cpi;
+  const nominal = v => v[bi] == null ? null : v.map(x => x == null ? null : x / v[bi] * 100);
+  const deflate = v => !v || !real ? v : cpi[bi] == null ? null : v.map((x, i) => x == null || cpi[i] == null ? null : x / (cpi[i] / cpi[bi]));
+  const rebase = v => deflate(nominal(v));
+  const ratioOf = c => nominal(L.land[c].map((x, i) => x == null || L.rent[c][i] == null ? null : x / L.rent[c][i]));
+  // 基準年に値がない価格の系列(マンションの価格指数・東京区部の市街地価格指数)は、最初の年を地価(公示)の値に合わせて描く
+  const landN = nominal(L.land[city]), anchored = {};
+  const price = (k, v) => {
+    let n = nominal(v);
+    if (!n && landN) {
+      const i = v.findIndex((x, j) => x != null && landN[j] != null);
+      if (i >= 0) { n = v.map(x => x == null ? null : x / v[i] * landN[i]); anchored[k] = L.years[i]; }
+    }
+    return deflate(n);
+  };
+  // 不動産価格指数(月次)の年平均。12か月そろう年だけ
+  const region = R.rpi_region[city], months = R.month, mansion = L.years.map(() => null);
+  if (region) {
+    const sum = {}, cnt = {};
+    R.rpi[region].mansion.forEach((v, i) => { if (v != null) { const y = +months[i].slice(0, 4); sum[y] = (sum[y] ?? 0) + v; cnt[y] = (cnt[y] ?? 0) + 1; } });
+    L.years.forEach((y, i) => { if (cnt[y] === 12) mansion[i] = sum[y] / 12; });
+  }
+  const series = {
+    land: rebase(L.land[city]), rent: rebase(L.rent[city]), cpi: real ? null : nominal(cpi),
+    jrei_six: rebase(L.nation.jrei_six), jrei_tokyo: price('jrei_tokyo', L.nation.jrei_tokyo), jrei_nation: rebase(L.nation.jrei_nation),
+    mansion: price('mansion', mansion),
+  };
+  const last = v => v ? v.findLastIndex(x => x != null) : -1;
+  const change = v => { const i = last(v); return i < 0 ? null : { year: L.years[i], value: v[i] / 100 }; };
+  // 地価のピーク(基準年によらない。実質なら物価で割った値で探す)と、最新年のピークに対する比
+  const peak = c => {
+    const v = L.land[c].map((x, i) => x == null || (real && cpi[i] == null) ? null : x / (real ? cpi[i] : 1));
+    let p = -1; v.forEach((x, i) => { if (x != null && (p < 0 || x > v[p])) p = i; });
+    const i = last(v);
+    return { year: L.years[p], latest_vs_peak: v[i] / v[p] };
+  };
+  const rows = L.cities.map(c => {
+    const land = rebase(L.land[c]), rent = rebase(L.rent[c]), ratio = ratioOf(c);
+    return { city: c, land: change(land), rent: change(rent), ratio: change(ratio), land_peak: peak(c),
+      line: { land, rent, ratio }[metric] };
+  });
+  const li = L.years.indexOf(L.land_last_year);
+  return {
+    city, base, real, metric, years: L.years, series, anchored, ratio: ratioOf(city), rpi_region: region ?? null,
+    land_n: L.land_n[city], land_last_year: L.land_last_year, rent_survey_year: L.rent_survey_year,
+    // 円の目安(名目): 地価は最新年の地点平均を指数で過去へ、家賃は住宅・土地統計調査の年の平均を指数で前後へ延ばす
+    land_yen: L.land[city].map(x => x == null ? null : L.land_level[city] * x / L.land[city][li]),
+    rent_yen: L.rent_level[city] == null ? null : (() => { const si = L.years.indexOf(L.rent_survey_year), s = L.rent[city][si];
+      return s == null ? null : L.rent[city].map(x => x == null ? null : L.rent_level[city] * x / s); })(),
+    summary: { land: change(series.land), rent: change(series.rent), cpi: change(nominal(cpi)), ratio: change(ratioOf(city)), land_peak: peak(city) },
+    rows,
+  };
+}
+
+/** 金利の長期推移(月次、1882年〜)。変動の店頭金利の目安(短プラ+1%)と、物価上昇率(全国の持家の帰属家賃を除く総合の前年比、年次)も返す。 */
+export async function longRates() {
+  const L = await loadLong(), r = L.rates, cpi = L.nation.cpi;
+  return { month: r.month, labels: { ...r.labels, float_store: '変動金利の店頭の目安(短プラ+1%)' },
+    values: { ...r.values, float_store: r.values.prime_short.map(v => v == null ? null : v + 1) },
+    inflation: { years: L.years.slice(1), values: L.years.slice(1).map((_, i) => cpi[i] == null || cpi[i + 1] == null ? null : (cpi[i + 1] / cpi[i] - 1) * 100) } };
+}
+
 export const routes = { meta, fit: fitSummary, profile, forecast, yield: investmentYield, rates, districts, 'district-map': districtMap, population: populationSeries, market,
   'housing-market': housingMarket, 'housing-national': housingNational, loan: loanOverview, repayment, 'loan-calc': loanCalc,
-  'population-area': populationArea, 'population-compare': populationCompare, 'population-map': populationMap, 'population-geo': populationGeo };
+  long: longTerm, 'long-rates': longRates, 'population-area': populationArea, 'population-compare': populationCompare, 'population-map': populationMap, 'population-geo': populationGeo };

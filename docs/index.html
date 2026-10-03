@@ -98,7 +98,7 @@ a { color: var(--accent); }
 <body>
 <main>
   <h1>不動産売却価格 回帰分析</h1>
-  <p class="lead">国土交通省の取引価格データによる、都市ごとの価格の回帰分析(築年数・立地などの効果、将来予測、利回り)と、全国の相場比較。市況(成約・在庫)、ローン金利、人口推移のまとめも。</p>
+  <p class="lead">国土交通省の取引価格データによる、都市ごとの価格の回帰分析(築年数・立地などの効果、将来予測、利回り)と、全国の相場比較。市況(成約・在庫)、ローン金利、人口推移、地価・家賃・金利の超長期推移のまとめも。</p>
 
   <div class="tabs modes" role="tablist">
     <button data-mode="city" aria-selected="true">都市ごとの分析(回帰)</button>
@@ -106,6 +106,7 @@ a { color: var(--accent); }
     <button data-mode="housing" aria-selected="false">市況(成約・在庫)</button>
     <button data-mode="loan" aria-selected="false">ローン・金利</button>
     <button data-mode="population" aria-selected="false">人口</button>
+    <button data-mode="long" aria-selected="false">長期推移(地価・家賃・金利)</button>
   </div>
 
   <div id="mode-city">
@@ -381,7 +382,9 @@ a { color: var(--accent); }
     <p class="note">新規登録(その月に売り出した物件の希望価格)と在庫(売れ残りを含む月末の物件)は、成約価格より高く出ます。差が広がるのは、売り手の希望に買い手がついてこない局面です。</p></div>
   <div class="grid2">
     <div class="panel"><h2 id="h_band_title">価格帯別の成約率と在庫月数</h2><div id="chart_h_band" class="chart sm"></div><p class="note" id="h_band_note"></p></div>
-    <div class="panel"><h2>価格帯別の成約件数の構成比(四半期)</h2><div id="chart_h_share" class="chart sm"></div></div>
+    <div class="panel"><h2>価格帯別の成約件数(四半期)</h2>
+      <div class="filters" style="margin-bottom:4px"><label class="f">表示<select id="h_share_mode"><option value="count">件数(積み上げ)</option><option value="share">構成比</option></select></label></div>
+      <div id="chart_h_share" class="chart sm"></div></div>
   </div>
   <div class="panel">
     <h2 id="h_region_title">地域の比較(直近12か月)</h2>
@@ -525,6 +528,53 @@ a { color: var(--accent); }
     </ul>
   </div>
   </div>
+  <div id="mode-long" hidden>
+  <section class="panel">
+    <h2>長期推移の条件 <span class="note">— 地価は地価公示(住宅地、1983年〜)と市街地価格指数(六大都市の住宅地、1955年〜)、家賃は消費者物価指数(1970年〜)</span></h2>
+    <div class="filters">
+      <label class="f">都市<select id="lt_city"></select></label>
+      <label class="f">基準年(=100)<input type="number" id="lt_base" value="1985" min="1955" step="1"></label>
+      <label class="f">表示<select id="lt_real"><option value="">名目</option><option value="1">実質(物価で割る)</option></select></label>
+      <label class="f">縦軸<select id="lt_log"><option value="1">対数</option><option value="">通常</option></select></label>
+    </div>
+    <p id="lt_status" class="note"></p>
+  </section>
+  <div class="tiles" id="lt_tiles"></div>
+  <div class="panel">
+    <h2 id="lt_title">地価・家賃・物価の推移</h2>
+    <div id="chart_lt" class="chart"></div>
+    <p class="note" id="lt_note"></p>
+  </div>
+  <div class="grid2">
+    <div class="panel"><h2>地価 ÷ 家賃 <span class="note">(基準年=100。上がるほど家賃に比べて土地が割高)</span></h2><div id="chart_lt_ratio" class="chart sm"></div>
+      <p class="note">買うか借りるかの目安。地価と家賃の指数の比なので水準(利回り)ではなく、基準年からの変化だけを表します。物価で割っても同じ値です。</p></div>
+    <div class="panel"><h2>円で見た水準の目安(名目) <span class="note" id="lt_yen_sub"></span></h2><div id="chart_lt_yen" class="chart sm"></div>
+      <p class="note" id="lt_yen_note"></p></div>
+  </div>
+  <div class="panel">
+    <h2>都市の比較</h2>
+    <div class="filters" style="margin-bottom:4px"><label class="f">指標<select id="lt_metric"><option value="land">地価(地価公示)</option><option value="rent">家賃</option><option value="ratio">地価 ÷ 家賃</option></select></label></div>
+    <div id="chart_lt_compare" class="chart"></div>
+    <p class="note">太線が選択中の都市です(線・表の行をクリックするとその都市を表示)。基準年に値がない都市は描きません。</p>
+    <div class="tblwrap"><table id="lt_table"></table></div>
+  </div>
+  <div class="panel">
+    <h2>金利の超長期推移 <span class="note">— 政策金利と、ローン金利の目安になる金利(月次)</span></h2>
+    <div id="chart_lt_rates" class="chart"></div>
+    <p class="note">初期表示は1955年以降です。グラフをドラッグすると拡大、ダブルクリックで全期間(公定歩合は1882年〜)に戻ります。凡例をクリックすると表示/非表示。点線の物価上昇率(前年比)を上回る分が、おおよその実質金利です。</p>
+  </div>
+  <div class="panel">
+    <h2>データと注意</h2>
+    <ul class="src">
+      <li>地価(都市別): <a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-L01-2026.html" target="_blank" rel="noopener">国土数値情報「地価公示」</a>(国土交通省、各年1月1日時点)の住宅地。最新年の地点が持つ1983年からの価格の履歴を使い、毎年、前年から継続して調査された地点(標準地番号の変更を含む)の価格の変化率を対数平均してつないだ連鎖指数です。最新年に残っている地点だけなので、古い年ほど地点が少なくなります(東京23区で1984年は約90地点、2026年は約850地点)。円の水準は最新年の全地点の平均価格を指数で過去に延ばした目安で、地点の構成を最新年に揃えています。</li>
+      <li>地価(長期): 日本不動産研究所「市街地価格指数」の住宅地(六大都市・全国(223都市)は1955年〜、東京区部は1985年〜)。<a href="https://data.bis.org/topics/RPP" target="_blank" rel="noopener">BIS(国際決済銀行)の住宅価格統計</a>から取得し、各年3月末の値を使っています。六大都市は東京区部・横浜・名古屋・京都・大阪・神戸の合計で、選んだ都市によらず同じ線です。東京区部の線は1985年より前の基準年では、1985年を地価公示の値に合わせて描きます。地価公示とは調査地点と集計方法が違い、2013年以降は地価公示の方が大きく上がっています。</li>
+      <li>家賃: <a href="https://www.e-stat.go.jp/stat-search/files?toukei=00200573" target="_blank" rel="noopener">総務省統計局「消費者物価指数」</a>2020年基準 長期時系列の都市別「持家の帰属家賃を除く家賃」(民営・公営・UR等の借家の家賃、年平均、1970年〜。川崎市は1975年、堺市は2010年、相模原市は2015年から)。同じ住宅の家賃の変化を追う指数で、建物が古くなって家賃が下がる分を十分には補正していないため、新築・築浅の家賃の上昇より小さく出やすいことが知られています。円の水準は令和5年住宅・土地統計調査の民営借家(非木造の共同住宅)の平均家賃(面積区分を戸数で加重平均)を指数で前後に延ばした目安です。</li>
+      <li>物価と実質値: 同じく消費者物価指数の全国「持家の帰属家賃を除く総合」(年平均、1947年〜)。実質は各年の値をこの指数で割ったもの(物価の値がまだない最新年は表示しません)。マンションの価格指数は国土交通省「不動産価格指数(住宅)」のマンション(区分所有)の年平均(2008年〜、地域は都市ごとの分析と同じ対応)で、基準年が2008年より前のときは2008年を地価公示の値に合わせて描きます。</li>
+      <li>金利: 公定歩合(基準割引率および基準貸付利率、1882年〜)と有担保コールレート翌日物(1960年〜)は<a href="https://www.stat-search.boj.or.jp/" target="_blank" rel="noopener">日本銀行 時系列統計データ検索サイト</a>の API、無担保コールレート・貸出約定平均金利は同サイトの主要時系列統計データ表、長期プライムレート(1966年〜)・短期プライムレート(1989年〜)は<a href="https://www.boj.or.jp/statistics/dl/loan/prime/index.htm" target="_blank" rel="noopener">日本銀行「長・短期プライムレート(主要行)の推移」</a>(過去の表を含む)、10年国債は財務省「国債金利情報」(1986年7月〜)。1990年代半ばまでは公定歩合、その後はコールレートの誘導目標が政策金利の中心です。</li>
+      <li>民間の住宅ローン金利や旧住宅金融公庫の金利の長期の推移は数表で公表されていないため載せていません。変動金利は大手行の慣行(短プラ+1%)を店頭金利の目安とし、固定金利は長期プライムレート・10年国債が目安になります。</li>
+    </ul>
+  </div>
+  </div>
   <footer class="note" style="margin-top:24px;line-height:1.8">
     出典: 「不動産取引価格情報・成約価格情報」(国土交通省 <a href="https://www.reinfolib.mlit.go.jp/" target="_blank" rel="noopener">不動産情報ライブラリ</a>)、
     「日本の地域別将来推計人口」(<a href="https://www.ipss.go.jp/" target="_blank" rel="noopener">国立社会保障・人口問題研究所</a>)、
@@ -533,7 +583,8 @@ a { color: var(--accent); }
     「基準割引率および基準貸付利率」「無担保コールレート」「貸出約定平均金利」「長・短期プライムレート(主要行)の推移」(<a href="https://www.boj.or.jp/" target="_blank" rel="noopener">日本銀行</a>)、
     「国債金利情報」(<a href="https://www.mof.go.jp/jgbs/reference/interest_rate/index.htm" target="_blank" rel="noopener">財務省</a>)、
     「既存住宅販売量指数」「建築着工統計」(国土交通省)、「賃貸住宅融資 参考金利の推移表」「住宅ローン利用者の実態調査」(住宅金融支援機構)、「貸出先別貸出金」(日本銀行)、各金融機関の公表金利 を加工して作成。
-    人口の地図は国土数値情報「行政区域」(国土交通省)を加工して作成。市況の首都圏の件数・価格は、東日本不動産流通機構「月例速報 Market Watch」をもとに作成(<a href="https://www.reins.or.jp/" target="_blank" rel="noopener">東日本レインズ</a>)。背景地図: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>。<br>
+    人口の地図は国土数値情報「行政区域」(国土交通省)を加工して作成。長期推移は、国土数値情報「地価公示」(国土交通省)、「消費者物価指数」(総務省統計局)、
+    日本不動産研究所「市街地価格指数」(<a href="https://data.bis.org/" target="_blank" rel="noopener">BIS</a> の Residential property prices: detailed series より)を加工して作成。市況の首都圏の件数・価格は、東日本不動産流通機構「月例速報 Market Watch」をもとに作成(<a href="https://www.reins.or.jp/" target="_blank" rel="noopener">東日本レインズ</a>)。背景地図: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>。<br>
     このページは個人が上記のデータを編集・加工して作成したもので、国や各機関が作成・保証したものではありません。推定値は参考情報であり、個別の不動産の査定・投資判断の根拠とはなりません。
   </footer>
 </main>
@@ -965,6 +1016,7 @@ async function initHousing() {
     renderHousing();
   });
   $('h_band').addEventListener('change', renderHousing);
+  $('h_share_mode').addEventListener('change', renderHousing);
   $('hs_region').addEventListener('change', renderHousingNational);
   $('hst_region').addEventListener('change', renderHousingNational);
 }
@@ -1031,9 +1083,15 @@ async function renderHousing() {
     $('h_band_note').textContent = `直近4四半期の合計(在庫は${b.recent.to.replace('-', '年')}末)。価格帯別の集計は首都圏と都県の単位でのみ公表されています。`;
     const qx = b.quarter.map(q => q.replace('-Q', 'Q'));
     const n = b.labels.length;
-    Plotly.react('chart_h_share', b.share.map((y, i) => ({ x: qx, y: y.map(v => v == null ? null : v * 100), name: lab[i], stackgroup: 'one', mode: 'lines', line: { width: 0.5 },
-      fillcolor: `hsl(${215 - 190 * i / (n - 1)}, 55%, ${68 - 18 * Math.abs(i / (n - 1) - 0.5)}%)`, hovertemplate: `%{y:.1f}%<extra>${lab[i]}</extra>` })),
-      layout({ yaxis: { ticksuffix: '%', range: [0, 100] }, xaxis: { nticks: 8 }, legend: { y: 1.25, font: { size: 10 } }, margin: { t: 60 } }), CFG);
+    // 件数の積み上げ棒と構成比(100%積み上げ)を切り替える。どちらもカーソルで件数と構成比を出す
+    const count = $('h_share_mode').value === 'count', color = i => `hsl(${215 - 190 * i / (n - 1)}, 55%, ${68 - 18 * Math.abs(i / (n - 1) - 0.5)}%)`;
+    Plotly.react('chart_h_share', b.sold.map((y, i) => {
+      const pctv = b.share[i].map(v => v == null ? null : v * 100), hover = `%{customdata[0]:,}件(%{customdata[1]:.1f}%)<extra>${lab[i]}</extra>`;
+      return count
+        ? { x: qx, y, name: lab[i], type: 'bar', marker: { color: color(i) }, customdata: y.map((v, j) => [v, pctv[j]]), hovertemplate: hover }
+        : { x: qx, y: pctv, name: lab[i], stackgroup: 'one', mode: 'lines', line: { width: 0.5 }, fillcolor: color(i), customdata: y.map((v, j) => [v, pctv[j]]), hovertemplate: hover };
+    }), layout({ barmode: 'stack', yaxis: count ? { title: { text: '成約件数' }, tickformat: ',' } : { ticksuffix: '%', range: [0, 100] }, xaxis: { nticks: 8 },
+      legend: { y: 1.3, font: { size: 10 } }, margin: { t: 80 } }), CFG);
   }
 
   $('h_region_title').textContent = `地域の比較(${h.kind_label}、全価格帯・直近12か月。在庫は${L.price_month.replace('-', '年')}月末)`;
@@ -1375,14 +1433,103 @@ async function renderPopMap() {
     : `${vals.length.toLocaleString()}市区町村のうち、増加 ${up.toLocaleString()}、減少 ${(vals.length - up).toLocaleString()}。` + ` 全国は ${pct(m.nation)}。濃い灰色はデータなし(推計の対象外など)。`;
 }
 
+// 長期推移(地価・家賃・物価・金利)。初めて開いたときに読み込む
+let LONG;
+const times = v => v == null ? '—' : v.toFixed(2) + '倍';
+async function initLong() {
+  LONG = true;
+  const meta = await api('/api/long', { city: '東京23区' }).catch(e => { $('lt_status').textContent = e.message; $('lt_status').className = 'err'; });
+  if (!meta) return;
+  fillSelect($('lt_city'), meta.rows.map(r => [r.city, r.city]), '東京23区');
+  $('lt_base').max = meta.land_last_year;
+  for (const id of ['lt_city', 'lt_base', 'lt_real', 'lt_log', 'lt_metric']) $(id).addEventListener('change', renderLong);
+  const pick = c => { if (c && c !== $('lt_city').value) { $('lt_city').value = c; renderLong(); } };
+  renderLong.pick = pick;
+  await Promise.all([renderLong(), renderLongRates()]);
+  $('chart_lt_compare').on('plotly_click', e => pick(e.points[0].data.name));
+}
+async function renderLong() {
+  const st = $('lt_status'), real = !!$('lt_real').value, log = !!$('lt_log').value;
+  let r;
+  try { r = await api('/api/long', { city: $('lt_city').value, base: +$('lt_base').value, real, metric: $('lt_metric').value }); }
+  catch (e) { st.textContent = e.message; st.className = 'err'; return; }
+  st.className = 'note'; st.textContent = '';
+  const s = r.series, sm = r.summary, kind = real ? '実質' : '名目', yAxis = { type: log ? 'log' : 'linear', title: { text: `指数(${r.base}年=100、${kind})` } };
+  const tile = (k, v, sub) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="note">${sub}</div></div>`;
+  const ch = (x, what) => x ? tile(`${what}(${r.base}→${x.year}年、${kind})`, times(x.value), '') : tile(what, '—', `${r.base}年の値がありません`);
+  $('lt_tiles').innerHTML = ch(sm.land, '地価') + ch(sm.rent, '家賃') +
+    (sm.cpi ? tile(`物価(${r.base}→${sm.cpi.year}年)`, times(sm.cpi.value), '全国の総合(持家の帰属家賃を除く)') : '') +
+    (sm.ratio ? tile(`地価÷家賃(${r.base}→${sm.ratio.year}年)`, times(sm.ratio.value), '1倍より大きいと、家賃に比べて土地が割高に') : '') +
+    tile(`地価のピーク(${kind})`, sm.land_peak.year + '年', `最新年はピークの ${(sm.land_peak.latest_vs_peak * 100).toFixed(0)}%`);
+  const x = r.years, line = (y, name, color, { width = 2, dash = 'solid', ...rest } = {}) => ({ x, y, mode: 'lines', name, connectgaps: false,
+    line: { color, width, dash }, hovertemplate: `%{y:.1f}<extra>${name}</extra>`, ...rest });
+  const anc = k => r.anchored[k] ? `、${r.anchored[k]}年を地価公示に合わせて表示` : '';
+  const traces = [
+    s.land && line(s.land, `地価: ${r.city}(地価公示 住宅地)`, css('--s1'), { width: 3, customdata: r.land_yen.map(v => v && v / 1e4),
+      hovertemplate: `%{y:.1f} (平均 %{customdata:,.1f}万円/㎡)<extra>地価 ${r.city}</extra>` }),
+    s.rent && line(s.rent, `家賃: ${r.city}(消費者物価)`, css('--s2'), { width: 3 }),
+    s.cpi && line(s.cpi, '物価: 全国', css('--text2'), { dash: 'dot' }),
+    s.jrei_six && line(s.jrei_six, '市街地価格指数: 六大都市 住宅地', css('--s3'), { width: 1.5, dash: 'dash' }),
+    s.jrei_tokyo && line(s.jrei_tokyo, `市街地価格指数: 東京区部 住宅地${anc('jrei_tokyo')}`, css('--s3'), { width: 1.5, dash: 'dot', visible: r.city === '東京23区' ? true : 'legendonly' }),
+    s.jrei_nation && line(s.jrei_nation, '市街地価格指数: 全国 住宅地', css('--muted'), { width: 1.5, dash: 'dash', visible: 'legendonly' }),
+    s.mansion && line(s.mansion, `不動産価格指数: マンション(${r.rpi_region}${anc('mansion')})`, css('--s1'), { width: 1.5, dash: 'dashdot' }),
+  ].filter(Boolean);
+  $('lt_title').textContent = `地価・家賃・物価の推移(${r.city}、${r.base}年=100、${kind})`;
+  Plotly.react('chart_lt', traces, layout({ xaxis: { range: [1954.5, r.land_last_year + 0.5] }, yaxis: yAxis, legend: { y: 1.16 }, margin: { t: 50 } }), CFG);
+  const missing = [!s.land && '地価', !s.rent && '家賃'].filter(Boolean);
+  $('lt_note').textContent = (missing.length ? `${r.base}年に${r.city}の${missing.join('・')}の値がないため描いていません(地価公示は1983年〜、家賃は都市により1970年〜)。` : '') +
+    '地価公示は各年1月1日、市街地価格指数は3月末、家賃・物価は年平均。' + (real ? '実質は全国の物価で割った値です。' : '');
+  Plotly.react('chart_lt_ratio', r.ratio ? [line(r.ratio, `地価÷家賃(${r.city})`, css('--s1'))] : [],
+    layout({ xaxis: { range: [1982.5, r.land_last_year + 0.5] }, yaxis: { title: { text: `${r.base}年=100` } }, showlegend: false }), CFG);
+  $('lt_yen_sub').textContent = `(${r.city})`;
+  Plotly.react('chart_lt_yen', [
+    { x, y: r.land_yen.map(v => v && v / 1e4), mode: 'lines', name: '地価(万円/㎡、左軸)', line: { color: css('--s1'), width: 2 }, hovertemplate: '%{y:,.1f}万円/㎡<extra>地価</extra>' },
+    r.rent_yen && { x, y: r.rent_yen, mode: 'lines', yaxis: 'y2', name: '家賃(円/月、右軸)', line: { color: css('--s2'), width: 2 }, hovertemplate: '%{y:,.0f}円/月<extra>家賃</extra>' },
+  ].filter(Boolean), layout({ xaxis: { range: [1969.5, r.land_last_year + 0.5] }, yaxis: { title: { text: '万円/㎡' }, rangemode: 'tozero', tickformat: ',' },
+    yaxis2: { overlaying: 'y', side: 'right', showgrid: false, title: { text: '円/月' }, rangemode: 'tozero', tickformat: ',' }, legend: { y: 1.12 }, margin: { t: 30, r: 70 } }), CFG);
+  $('lt_yen_note').textContent = `地価は${r.land_last_year}年の住宅地の地点平均(${Math.round(r.land_yen[r.years.indexOf(r.land_last_year)] / 1e4).toLocaleString()}万円/㎡)、家賃は${r.rent_survey_year}年の民営借家(非木造の共同住宅)の平均を、それぞれ指数で延ばした目安です。`;
+
+  // 都市の比較: 全都市を灰色で描き、選んだ都市だけ色を付ける
+  const metricLabel = { land: '地価', rent: '家賃', ratio: '地価÷家賃' }[r.metric];
+  const cline = (row, on) => ({ x, y: row.line, mode: on ? 'lines+text' : 'lines', name: row.city, connectgaps: false,
+    text: row.line.map((v, i) => on && i === row.line.findLastIndex(z => z != null) ? row.city : ''), textposition: 'top left',
+    line: { color: on ? css('--s2') : css('--muted'), width: on ? 3 : 1 }, opacity: on ? 1 : 0.55, hovertemplate: `${row.city} %{x}年: %{y:.1f}<extra></extra>` });
+  const rows = r.rows.filter(w => w.line);
+  Plotly.react('chart_lt_compare', [...rows.filter(w => w.city !== r.city).map(w => cline(w, false)), ...rows.filter(w => w.city === r.city).map(w => cline(w, true))],
+    layout({ xaxis: { range: [Math.max(1969.5, r.base - 0.5), r.land_last_year + 0.5] }, yaxis: { ...yAxis, title: { text: `${metricLabel}(${r.base}年=100${r.metric === 'ratio' ? '' : '、' + kind})` } },
+      showlegend: false, hovermode: 'closest' }), CFG);
+  $('lt_table').innerHTML = `<tr><th>都市</th><th>地価 ${r.base}年→最新(${kind})</th><th>家賃 ${r.base}年→最新(${kind})</th><th>地価÷家賃</th><th>地価のピーク</th><th>最新年/ピーク</th></tr>` +
+    r.rows.map(w => `<tr data-city="${w.city}"${w.city === r.city ? ' class="hl"' : ''}><td>${w.city}</td><td>${times(w.land?.value)}</td><td>${times(w.rent?.value)}</td><td>${times(w.ratio?.value)}</td>
+      <td>${w.land_peak.year}年</td><td>${(w.land_peak.latest_vs_peak * 100).toFixed(0)}%</td></tr>`).join('');
+  for (const tr of document.querySelectorAll('#lt_table tr[data-city]')) tr.onclick = () => renderLong.pick(tr.dataset.city);
+}
+// 金利の超長期推移 [色, 太さ, 線種, 初期表示]
+const LONG_RATE_STYLE = { policy_rate: ['--s2', 2.5, 'solid', true], call_collateral: ['--s2', 1.2, 'dot', false], call_rate: ['--s2', 1.5, 'dot', true],
+  prime_long: ['--s1', 2, 'solid', true], prime_short: ['--s1', 1.2, 'dot', false], float_store: ['--s3', 2, 'solid', true], jgb10: ['--text2', 1.5, 'solid', true],
+  lend_stock_long: ['--muted', 1.2, 'dash', false] };
+async function renderLongRates() {
+  const r = await api('/api/long-rates', {}), x = r.month.map(m => m + '-01');
+  Plotly.react('chart_lt_rates', [
+    ...Object.keys(LONG_RATE_STYLE).map(k => {
+      const [color, width, dash, on] = LONG_RATE_STYLE[k];
+      return { x, y: r.values[k], mode: 'lines', name: r.labels[k], line: { color: css(color), width, dash }, connectgaps: false,
+        visible: on ? true : 'legendonly', hovertemplate: '%{y:.2f}%<extra>' + r.labels[k] + '</extra>' };
+    }),
+    { x: r.inflation.years.map(y => y + '-07-01'), y: r.inflation.values, mode: 'lines', name: '物価上昇率(全国、前年比)', line: { color: css('--muted'), width: 1.5, dash: 'dot' },
+      connectgaps: false, hovertemplate: '%{y:.1f}%<extra>物価上昇率</extra>' },
+  ], layout({ xaxis: { type: 'date', hoverformat: '%Y年%m月', range: ['1955-01-01', r.month.at(-1) + '-28'] }, yaxis: { title: { text: '年利(%)' }, ticksuffix: '%', zeroline: true, zerolinecolor: css('--border'), range: [-2, 14] },
+    legend: { y: 1.2 }, margin: { t: 60 } }), CFG);
+}
+
 // ページ上部の切り替え: 都市ごとの回帰分析 / 全国の相場比較 / 市況 / ローン・金利
 document.querySelectorAll('.tabs.modes button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs.modes button').forEach(x => x.setAttribute('aria-selected', x === b));
-  for (const m of ['city', 'national', 'housing', 'loan', 'population']) $('mode-' + m).hidden = b.dataset.mode !== m;
+  for (const m of ['city', 'national', 'housing', 'loan', 'population', 'long']) $('mode-' + m).hidden = b.dataset.mode !== m;
   if (b.dataset.mode === 'national' && !MARKET) renderMarket();  // 16都市ぶんの回帰を使うので、初めて開いたときに計算する
   if (b.dataset.mode === 'housing' && !HOUSING) initHousing();
   if (b.dataset.mode === 'loan' && !LOAN) initLoan();
   if (b.dataset.mode === 'population' && !POP) initPopulation();
+  if (b.dataset.mode === 'long' && !LONG) initLong();
   window.dispatchEvent(new Event('resize'));
   if (MAP) MAP.invalidateSize();
   if (POP_MAP) POP_MAP.invalidateSize();

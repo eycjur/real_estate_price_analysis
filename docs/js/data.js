@@ -6,7 +6,7 @@ let loadBytes = async path => {
   return r.arrayBuffer();
 };
 /** テスト用: データの読み込み方を差し替える。fn(path) → ArrayBuffer */
-export function setLoader(fn) { loadBytes = fn; cache.clear(); metaPromise = null; ratesPromise = null; marketPromise = null; loanPromise = null; popPromise = null; geoPromise = null; }
+export function setLoader(fn) { loadBytes = fn; cache.clear(); metaPromise = null; ratesPromise = null; marketPromise = null; loanPromise = null; longPromise = null; popPromise = null; geoPromise = null; }
 
 const TYPES = { uint8: Uint8Array, uint16: Uint16Array, uint32: Uint32Array };
 const cache = new Map();
@@ -37,6 +37,12 @@ let loanPromise = null;
 /** ローン(機構の賃貸住宅融資の金利・日銀の新規貸出額・商品の金利・金利タイプ別の利用割合)(docs/data/loan.json)。 */
 export function loadLoan() {
   return loanPromise ??= loadJson('loan.json');
+}
+
+let longPromise = null;
+/** 長期推移(地価公示の地価指数・消費者物価の家賃指数・全国の物価・市街地価格指数の年次系列)(docs/data/long.json)。 */
+export function loadLong() {
+  return longPromise ??= loadJson('long.json');
 }
 
 let popPromise = null, geoPromise = null;

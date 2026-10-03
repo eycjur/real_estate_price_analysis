@@ -273,6 +273,45 @@ def population_json() -> tuple[dict, dict]:
     }, geo
 
 
+def long_json() -> dict:
+    """長期推移タブ: 都市別の地価指数(地価公示、最新年=100)・家賃指数(消費者物価、2020年=100)と、全国の物価・市街地価格指数を共通の年の並びに。
+
+    家賃の水準(円/月)は住宅・土地統計調査の区×面積区分の平均家賃を戸数で加重平均した都市の平均で、指数を掛けて過去の目安にする。
+    金利は1882年からの月次(系列ごとに始まりが違い、欠けた月は null)。
+    """
+    city = pd.read_parquet(PROCESSED / "long_city.parquet")
+    nation = pd.read_parquet(PROCESSED / "long_nation.parquet").set_index("year")
+    rent = pd.read_parquet(PROCESSED / "rent.parquet")
+    rates = pd.read_parquet(PROCESSED / "long_rates.parquet").set_index("month")
+    years = list(range(int(min(city["year"].min(), nation.index.min())), int(max(city["year"].max(), nation.index.max())) + 1))
+    vals = lambda s, d=4: [None if pd.isna(v) else round(float(v), d) for v in s.reindex(years)]  # noqa: E731
+    by = {c: g.set_index("year") for c, g in city.groupby("city")}
+    cities = [c for c in CITIES_NORTH_TO_SOUTH if c in by]
+    rent_level = {c: float(np.average(g["rent"], weights=g["n_units"])) for c, g in rent.groupby("city")}
+    land_last = int(city.dropna(subset=["land"])["year"].max())
+    return {
+        "years": years, "cities": cities, "land_last_year": land_last, "rent_survey_year": 2023,
+        "land": {c: vals(by[c]["land"], 3) for c in cities},
+        "land_n": {c: [int(v) for v in by[c]["land_n"].reindex(years).fillna(0)] for c in cities},
+        "land_level": {c: round(float(by[c].at[land_last, "land_level"])) for c in cities},
+        "rent": {c: vals(by[c]["rent"], 2) for c in cities},
+        "rent_level": {c: round(rent_level[c]) for c in cities if c in rent_level},
+        "nation": {k: vals(nation[k], 2) for k in ("cpi", "jrei_six", "jrei_tokyo", "jrei_nation")},
+        "rates": {"month": list(rates.index), "labels": LONG_RATE_LABELS,
+                  "values": {k: [None if pd.isna(v) else round(float(v), 3) for v in rates[k]] for k in LONG_RATE_LABELS}},
+    }
+
+
+LONG_RATE_LABELS = {
+    "policy_rate": "公定歩合(基準割引率および基準貸付利率)", "call_collateral": "有担保コールレート翌日物(月平均)",
+    "call_rate": "無担保コールレート O/N(月平均)", "prime_long": "長期プライムレート", "prime_short": "短期プライムレート(最頻値)",
+    "jgb10": "10年国債利回り(月平均)", "lend_stock_long": "貸出約定平均金利 ストック/長期",
+}
+# 長期推移タブの都市の並び(北から)
+CITIES_NORTH_TO_SOUTH = ["札幌市", "仙台市", "さいたま市", "千葉市", "東京23区", "川崎市", "横浜市", "相模原市", "名古屋市", "京都市", "大阪市",
+                         "堺市", "神戸市", "広島市", "北九州市", "福岡市"]
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", help="公開URL(末尾/)。指定すると docs/index.html の OGP の絶対URLを書き換える")
@@ -324,6 +363,8 @@ def main() -> None:
           round((out / "boundaries.json").stat().st_size / 1e6, 2), "MB")
     (out / "loan.json").write_text(json.dumps(loan_json(), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print("loan.json", round((out / "loan.json").stat().st_size / 1e6, 2), "MB")
+    (out / "long.json").write_text(json.dumps(long_json(), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print("long.json", round((out / "long.json").stat().st_size / 1e6, 2), "MB")
 
     if args.base_url:
         index = SITE / "index.html"

@@ -247,3 +247,35 @@ test('population-map: 増減率と割合。全国の値も返す', async () => {
   await assert.rejects(routes['population-map']({ from: 2050, to: 2020 }), /年の指定/);
   assert.deepEqual(Object.keys(await routes['population-geo']()), ['13101']);
 });
+
+test('long: 基準年=100 にそろえ、実質は物価で割る。基準年に値のない価格の系列は地価に合わせる', async () => {
+  const r = await routes.long({ city: 'X市', base: 2016 });
+  const i = y => r.years.indexOf(y);
+  close(r.series.land[i(2016)], 100); close(r.series.land[i(2018)], 400); assert.equal(r.series.land[i(2014)], null);
+  close(r.series.rent[i(2021)], 170 / 120 * 100);
+  close(r.series.jrei_tokyo[i(2017)], 200);  // 基準年に値があればそのまま
+  close(r.ratio[i(2017)], (2 / 130) / (1 / 120) * 100);
+  assert.deepEqual(r.summary.land, { year: 2021, value: 32 });
+  assert.equal(r.summary.land_peak.year, 2021);
+  close(r.land_yen[i(2020)], 100000); close(r.rent_yen[i(2016)], 60000 * 120 / 160);
+  const real = await routes.long({ city: 'X市', base: 2016, real: true });
+  close(real.series.land[i(2018)], 400 / 1.05 ** 2); assert.equal(real.series.land[i(2021)], null);  // 2021年は物価がない
+  assert.equal(real.series.cpi, null);
+  // 東京区部は2016年から: 2015年基準では2016年を地価に合わせる
+  const early = await routes.long({ city: 'X市', base: 2015 });
+  assert.equal(early.anchored.jrei_tokyo, 2016); close(early.series.jrei_tokyo[i(2016)], 200); close(early.series.jrei_tokyo[i(2017)], 400);
+  // マンションの価格指数(rates.json、全国、2015〜2020年の月次の年平均)
+  close(r.series.mansion[i(2017)], (100 + (24 + 35) / 2) / (100 + (12 + 23) / 2) * 100);
+  const cmp = await routes.long({ city: 'X市', base: 2016, metric: 'rent' });
+  assert.deepEqual(cmp.rows.map(w => w.city), ['X市', 'Y市']);
+  assert.equal(cmp.rows[1].line, null); assert.equal(cmp.rows[1].rent, null);
+  await assert.rejects(routes.long({ city: 'Z市' }), /都市が不正/);
+  await assert.rejects(routes.long({ city: 'X市', base: 1900 }), /基準年が不正/);
+});
+
+test('long-rates: 変動の店頭の目安は短プラ+1%、物価上昇率は前年比', async () => {
+  const r = await routes['long-rates']();
+  close(r.values.float_store[0], 2.5);
+  assert.deepEqual(r.inflation.years.slice(0, 2), [2015, 2016]);
+  close(r.inflation.values[0], 5); assert.equal(r.inflation.values.at(-1), null);
+});
