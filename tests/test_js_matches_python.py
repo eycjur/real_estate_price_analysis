@@ -51,7 +51,7 @@ def site(tmp_path_factory):
         "no_district": export.NO_DISTRICT, "district_lambda": 5.0, "year_min": 2015, "year_max": 2020,
         "n_total": len(tx), "population_last_actual_year": 2020,
         "variables": {"mansion": ["structure", "renovated"]},  # 画面側は共線な dup を使わない
-        "reference": {"mansion": {"ref_age": 10, "ref_area": 60, "ref_station": 8, "base_levels": {}}},
+        "reference": {"mansion": {"ref_age": 10, "ref_area": 60, "area_step": 5, "ref_station": 8, "station_step": 5, "base_levels": {}}},
         "population": {w: {"year": list(range(2010, 2051)), "population": [100000 + 500 * i * (j + 1) for i in range(41)]}
                        for j, w in enumerate(wards)},
         "rent": [{"ward": w, "area_min": 0, "area_max": 99, "rent": r, "n_units": 100}
@@ -165,6 +165,11 @@ def test_city_fit_with_district_l2_and_hc1(result):
     compare(js["city"], fit(tx[tx["city"] == "X市"], spec()))
 
 
+def test_city_fit_with_area_and_station_step(result):
+    tx, js = result
+    compare(js["city_area"], fit(tx[tx["city"] == "X市"], spec(area_step=5, station_step=5)))
+
+
 def test_pooled_fit_with_cluster_se(result):
     tx, js = result
     compare(js["pooled"], fit(tx, spec(fixed_effects="ward+cityyear"), cluster=True))
@@ -181,5 +186,8 @@ def test_prediction_and_age_effect(result):
     row = row.assign(structure=levels["structure"][1], renovated=levels["renovated"][0], dup=levels["dup"][0])
     mu, se = f.predict(row)
     assert [js["predict"]["mu"], js["predict"]["se"]] == pytest.approx([mu[0], se[0]], rel=1e-6)
+    fa = fit(tx[tx["city"] == "X市"], spec(area_step=5, station_step=5))
+    mu, se = fa.predict(pd.concat([row, row.assign(area=500.0, station_min=90.0)]))  # 500㎡・90分 はデータにないので最も近い区分
+    assert [v for p in js["predict_area"] for v in (p["mu"], p["se"])] == pytest.approx([mu[0], se[0], mu[1], se[1]], rel=1e-6)
     assert [js["age_effect"]["effect"], js["age_effect"]["se"]] == pytest.approx(age_effect(f, 12, 31), rel=1e-6)
     assert js["age_effect_far"]["effect"] == pytest.approx(age_effect(f, 10, 200)[0], rel=1e-6)  # 最も近い築年数で代用

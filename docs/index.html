@@ -118,7 +118,7 @@ a { color: var(--accent); }
       <label class="f">取引年(から)<input type="number" id="year_from"></label>
       <label class="f">取引年(まで)<input type="number" id="year_to"></label>
     </div>
-    <p class="note">築年数は1年刻みのカテゴリ変数(曲線の形を仮定しない)、説明変数は取得できる項目をすべて投入し、地区(町名)の効果も含めています。通常の変数は罰則なしの最小二乗法、水準が数千ある地区名だけ L2 で区平均へ縮小しています。</p>
+    <p class="note">築年数は1年刻み、マンション・戸建の面積は5㎡刻み、駅徒歩は5分刻み(30分以上は1区間)のカテゴリ変数(曲線の形を仮定しない)、説明変数は取得できる項目をすべて投入し、地区(町名)の効果も含めています。通常の変数は罰則なしの最小二乗法、水準が数千ある地区名だけ L2 で区平均へ縮小しています。</p>
     <p id="status" class="note"></p>
   </section>
 
@@ -133,6 +133,8 @@ a { color: var(--accent); }
     <div class="grid3">
       <div><h3 class="ch">予測と実績 <span class="note">(無作為抽出3,000件、対数軸)</span></h3><div id="chart_pa" class="chart xs"></div></div>
       <div><h3 class="ch">築年数と価格 <span class="note">(基準の物件で築年数だけ変えた場合。1年ごとに推定)</span></h3><div id="chart_agecurve" class="chart xs"></div></div>
+      <div><h3 class="ch">面積と価格 <span class="note" id="areacurve_sub"></span></h3><div id="chart_areacurve" class="chart xs"></div></div>
+      <div><h3 class="ch">駅距離と価格 <span class="note" id="stationcurve_sub"></span></h3><div id="chart_stationcurve" class="chart xs"></div></div>
       <div><h3 class="ch">取引年と価格 <span class="note">(基準の物件の各年の相場)</span></h3><div id="chart_year" class="chart xs"></div></div>
     </div>
     <div class="gridmap">
@@ -162,7 +164,7 @@ a { color: var(--accent); }
         <label class="f">横軸にする変数<select id="vary"></select></label>
         <label class="f">区<select id="p_ward"></select></label>
         <label class="f">築年数<input type="number" id="p_age" value="20" min="0" max="60"></label>
-        <label class="f"><span id="lbl_area">面積(㎡)</span><input type="number" id="p_area" value="65" min="10" max="3000"></label>
+        <label class="f"><span id="lbl_area">面積(㎡)</span><input type="number" id="p_area" value="65" min="10" max="3000" step="5"></label>
         <label class="f" id="wrap_land" hidden>土地面積(㎡)<input type="number" id="p_land_area" value="100" min="20" max="3000"></label>
         <label class="f">駅徒歩(分)<input type="number" id="p_station_min" value="8" min="0" max="120"></label>
         <label class="f">取引年<select id="p_year"></select></label>
@@ -317,7 +319,7 @@ a { color: var(--accent); }
       </ul>
       <h2>モデル</h2>
       <ul class="src">
-        <li>ln(価格) = 築年数 + ln(面積) + 駅徒歩 + 構造・改装・間取り・用途地域・容積率・取引四半期など(戸建は土地面積・土地形状・前面道路・間口も) + 区効果 + 取引年効果 の最小二乗法(ヘドニック回帰)。成約価格情報に無い項目は「不明」を独立の区分として扱い、完全に重複する列は自動で除外します。</li>
+        <li>ln(価格) = 築年数(1年刻み) + 面積(マンション・戸建は5㎡刻みの区分、一棟ものは ln(面積)) + 駅徒歩(5分刻みの区間、30分以上は1区間) + 構造・改装・間取り・用途地域・容積率・取引四半期など(戸建は土地面積・土地形状・前面道路・間口も) + 区効果 + 取引年効果 の最小二乗法(ヘドニック回帰)。成約価格情報に無い項目は「不明」を独立の区分として扱い、完全に重複する列は自動で除外します。</li>
         <li>地区(町名)効果は水準が数千あるため L2 罰則(λ)つきで推定します。取引の少ない地区ほど区平均に引き寄せられ、混合効果モデルのランダム効果に相当します。他の係数は罰則なしなので、築年数などの係数と標準誤差はそのまま解釈できます。</li>
         <li>「検証用2割での誤差」は、取引の2割を除いて推定し、その2割を予測したときの誤差です(過学習の確認用)。標準誤差は不均一分散に頑健なHC1(全都市プール時は区クラスタ)。</li>
         <li>「典型的な誤差」= exp(残差の標準偏差) − 1。個別物件の価格が推定からどの程度ずれるかの目安です。</li>
@@ -334,8 +336,8 @@ a { color: var(--accent); }
       <div class="filters">
         <label class="f">地域<select id="m_region"></select></label>
         <label class="f">種別<select id="m_kind"></select></label>
-        <label class="f"><span id="m_lbl_area">面積(㎡) から</span><input type="number" id="m_area_min" value="15" min="10" max="3000"></label>
-        <label class="f">まで<input type="number" id="m_area_max" value="30" min="10" max="3000"></label>
+        <label class="f"><span id="m_lbl_area">面積(㎡) から</span><input type="number" id="m_area_min" value="15" min="10" max="3000" step="5"></label>
+        <label class="f">まで<input type="number" id="m_area_max" value="30" min="10" max="3000" step="5"></label>
         <label class="f">築年数 から<input type="number" id="m_age_min" value="0" min="0" max="60"></label>
         <label class="f">まで<input type="number" id="m_age_max" value="40" min="0" max="60"></label>
         <label class="f">駅徒歩(分)以内<input type="number" id="m_station_max" value="15" min="0" max="120"></label>
@@ -685,24 +687,55 @@ async function refit() {
 
 // 回帰方程式のカード。各カードは選択肢ごとの ln価格差(初期の基準=0)を持ち、クリックで基準を切り替える。
 // 基準を変えても係数の差を取り直すだけなので、再推定は不要
-let SEL = {};  // カード key → 基準にした選択肢の key
+let SEL = {};  // カード key → 基準にした選択肢の key。地区は SEL.district(地区名、未設定は区の平均)
+const DISTRICTS = new Map();  // [推定条件, 区] → 地区の一覧(件数と地区効果)
 let syncProperty = async () => {};  // renderCards が現在のカード定義で差し替える
 function cardDefs(f) {
   const by = Object.fromEntries(f.coefficients.map(r => [r.name, r])), b0 = f.base, house = hasLand(f.params.kind);
   // 築年数は1年刻みのカテゴリ変数。係数のある年(基準は0)だけを持ち、カードには代表的な年を並べる
   const ageCoef = new Map([[f.base_age, 0], ...f.coefficients.filter(r => r.name.startsWith('age=')).map(r => [+r.name.slice(4), r.coef])]);
   const ageYears = [...ageCoef.keys()].sort((a, b) => a - b);
-  const ageLn = a => ageCoef.get(ageYears.reduce((best, y) => Math.abs(y - a) < Math.abs(best - a) ? y : best));
+  const nearest = (keys, a) => keys.reduce((best, y) => Math.abs(y - a) < Math.abs(best - a) ? y : best);
+  const ageLn = a => ageCoef.get(nearest(ageYears, a));
   const num = (key, title, unit, ref, values, ln, extra) => ({ key, title, main: true, base: ref, extra,
     opts: [...new Set([...values, ref])].sort((a, b) => a - b).map(v => ({ key: v, label: unit(v), ln: ln(v) })) });
   const defs = [num('age', '築年数', a => a ? `築${a}年` : '新築(築0年)', b0.age, [0, 5, 10, 15, 20, 30, 40, 50].filter(a => ageCoef.has(a)), ageLn,
     ['築10〜20年の年率', pct(Math.expm1(Math.log1p(f.age_effects[1].pct) / 10), 2)])];
   // 一棟ものは規模の幅が大きいので、面積の選択肢は基準の物件の 0.5〜2倍(10㎡単位)
   const scaled = (b, list) => isBldg(f.params.kind) ? [0.5, 0.75, 1.5, 2].map(r => Math.round(b * r / 10) * 10) : list;
-  defs.push(num('area', house ? '建物面積' : '面積', a => a + '㎡', b0.area, scaled(b0.area, house ? [80, 100, 120, 150] : [20, 30, 40, 60, 80]), a => by.ln_area.coef * Math.log(a / b0.area)));
+  // 面積を step㎡ 刻みの区分で推定した種別は、区分の下限をキーにして区分の係数を使う(基準の区分は0)
+  const step = f.area_step;
+  let areaCurve;  // 面積のグラフ: 横軸の値と、基準との ln価格差
+  if (step) {
+    const areaCoef = new Map([[b0.area, 0], ...f.coefficients.filter(r => r.name.startsWith('area=')).map(r => [+r.name.slice(5), r.coef])]);
+    const bins = [...areaCoef.keys()];
+    // マンションは40㎡台まで全区分、その先は 60・80㎡ だけ並べる
+    const shown = house ? [80, 100, 120, 150] : [...bins.filter(a => a <= 40), 60, 80];
+    defs.push(num('area', house ? '建物面積' : '面積', a => `${a}〜${a + step}㎡`, b0.area, shown.filter(a => areaCoef.has(a)),
+      a => areaCoef.get(nearest(bins, Math.floor(a / step) * step))));
+    const [lo, hi] = f.area_range, xs = bins.filter(a => a + step > lo && a <= hi).sort((a, b) => a - b);
+    areaCurve = { x: xs, ln: xs.map(a => areaCoef.get(a)), label: a => `${a}〜${a + step}㎡` };
+  } else {
+    const lnArea = a => by.ln_area.coef * Math.log(a / b0.area), [lo, hi] = f.area_range, xs = Array.from({ length: 50 }, (_, i) => lo + (hi - lo) * i / 49);
+    defs.push(num('area', house ? '建物面積' : '面積', a => a + '㎡', b0.area, scaled(b0.area, house ? [80, 100, 120, 150] : [20, 30, 40, 60, 80]), lnArea));
+    areaCurve = { x: xs, ln: xs.map(lnArea), label: a => `${Math.round(a)}㎡` };
+  }
   if (house) defs.push(num('land', '土地面積', a => a + '㎡', b0.land_area, scaled(b0.land_area, [60, 100, 150, 200]), a => by.ln_land.coef * Math.log(a / b0.land_area)));
-  defs.push(num('station', '最寄駅からの距離', m => `徒歩${m}分`, b0.station_min, [1, 5, 10, 15, 20], m => by.station_min.coef * (m - b0.station_min),
-    ['1分遠くなるごとに', pct(Math.expm1(by.station_min.coef))]));
+  // 駅徒歩を区間で推定した種別は、区間の下限をキーにして区間の係数を使う(基準の区間は0)
+  const sstep = f.station_step;
+  let stationCurve;  // 駅距離のグラフ: 横軸の値と、基準との ln価格差
+  if (sstep) {
+    const stCoef = new Map([[b0.station_min, 0], ...f.coefficients.filter(r => r.name.startsWith('station=')).map(r => [+r.name.slice(8), r.coef])]);
+    const keys = [...stCoef.keys()];
+    defs.push(num('station', '最寄駅からの距離', m => m >= 30 ? `徒歩${m}分以上` : `徒歩${m}〜${m + sstep - 1}分`, b0.station_min, keys,
+      m => stCoef.get(nearest(keys, Math.min(Math.floor(m / sstep) * sstep, 30)))));
+    const xs = keys.slice().sort((a, b) => a - b);
+    stationCurve = { x: xs, ln: xs.map(m => stCoef.get(m)), label: m => m >= 30 ? `${m}分以上` : `${m}〜${m + sstep - 1}分` };
+  } else {
+    const lnSt = m => by.station_min.coef * (m - b0.station_min), xs = Array.from({ length: 31 }, (_, i) => i);
+    defs.push(num('station', '最寄駅からの距離', m => `徒歩${m}分`, b0.station_min, [1, 5, 10, 15, 20], lnSt, ['1分遠くなるごとに', pct(Math.expm1(by.station_min.coef))]));
+    stationCurve = { x: xs, ln: xs.map(lnSt), label: m => `${m}分` };
+  }
   for (const [c, v] of Object.entries(f.categoricals)) {
     const opts = v.levels.map((l, i) => i === 0 ? { key: l, label: l, ln: 0 } : by[`${c}=${l}`] && { key: l, label: l, ln: by[`${c}=${l}`].coef, ns: by[`${c}=${l}`].p >= 0.05 })
       .filter(Boolean).sort((a, b) => b.ln - a.ln);
@@ -712,15 +745,22 @@ function cardDefs(f) {
     opts: [{ key: f.base_ward, label: f.base_ward, ln: 0 }, ...f.ward_effects.map(r => ({ key: r.name.slice(5), label: r.name.slice(5), ln: r.coef, ns: r.p >= 0.05 }))].sort((a, b) => b.ln - a.ln) });
   if (f.year_effects.length) defs.push({ key: 'year', title: '取引年(市況)', base: f.base_year,
     opts: [{ key: f.base_year, label: f.base_year + '年', ln: 0 }, ...f.year_effects.map(r => ({ key: r.year, label: r.year + '年', ln: r.coef, ns: r.p >= 0.05 }))].sort((a, b) => b.key - a.key) });
-  return { defs, ageLn, ageYears };
+  return { defs, ageLn, ageYears, areaCurve, stationCurve };
 }
 function renderCards() {
-  const f = FIT, { defs, ageLn, ageYears } = cardDefs(f);
+  const f = FIT, { defs, ageLn, ageYears, areaCurve, stationCurve } = cardDefs(f);
   const sel = d => d.opts.find(o => String(o.key) === String(SEL[d.key] ?? d.base));
-  const price = f.base.price * Math.exp(defs.reduce((t, d) => t + sel(d).ln, 0));
-  const changed = defs.some(d => String(sel(d).key) !== String(d.base));
+  // 地区: 選択中の基準の区の地区一覧(初回は取得してから描き直す)。地区効果は区の平均からのズレ
+  const wardKey = String(sel(defs.find(d => d.key === 'ward')).key), distKey = JSON.stringify([f.params, wardKey]);
+  if (!DISTRICTS.has(distKey)) {
+    DISTRICTS.set(distKey, null);
+    api('/api/districts', { fit: f.params, ward: wardKey }).then(ds => { DISTRICTS.set(distKey, ds); if (FIT === f) renderCards(); });
+  }
+  const dists = DISTRICTS.get(distKey), dist = dists?.find(d => d.district === SEL.district);
+  const price = f.base.price * Math.exp(defs.reduce((t, d) => t + sel(d).ln, 0) + (dist?.effect ?? 0));
+  const changed = defs.some(d => String(sel(d).key) !== String(d.base)) || !!SEL.district;
   $('base_card').innerHTML = `<div class="card base-card"><h3>基準の物件${changed ? '(選択中の条件)' : ' = exp(切片)'}</h3><div class="price">${yen(price)}</div>
-    <div class="base">${defs.map(d => `${d.title}=${sel(d).label}`).join(' / ')} / 地区は区の平均</div>
+    <div class="base">${defs.map(d => `${d.title}=${sel(d).label}`).join(' / ')} / 地区=${dist ? dist.district : '区の平均'}</div>
     ${changed ? '<button class="linkbtn" id="reset_base">基準を初期値に戻す</button>' : ''}</div>`;
   if (changed) $('reset_base').onclick = () => { SEL = {}; renderCards(); syncProperty(); };
   // 基準の物件を「断面の条件」(断面グラフ・将来予測・利回りで共通)へ反映する。keys を指定するとその項目だけ
@@ -731,6 +771,7 @@ function renderCards() {
     set('p_ward', v.ward); set('p_age', v.age); set('p_area', v.area); set('p_land_area', v.land); set('p_station_min', v.station); set('p_year', v.year);
     for (const e of document.querySelectorAll('#cat_props select')) if (v[e.dataset.var] != null) e.value = v[e.dataset.var];
     if (wardChanged) { $('p_district').value = ''; await loadDistricts(); }
+    if (!keys || keys.includes('ward') || keys.includes('district')) $('p_district').value = SEL.district ?? '';
     await Promise.all([renderProfile(), renderForecast(), renderYield(), renderRates()]);
   };
   const cardHtml = d => {
@@ -743,8 +784,17 @@ function renderCards() {
   };
   // 築年数・面積・駅距離・構造・間取りは常に表示し、残りは「詳細」の折りたたみにまとめる
   $('eq_cards').innerHTML = defs.filter(d => d.main).map(cardHtml).join('');
-  $('eq_cards_detail').innerHTML = defs.filter(d => !d.main).map(cardHtml).join('');
-  for (const e of document.querySelectorAll('.cards .row.opt')) e.onclick = () => { SEL[e.dataset.card] = e.dataset.key; renderCards(); syncProperty([e.dataset.card]); };
+  // 地区のカード(区のカードの次)。プルダウンで選び、効果は区の平均との差
+  const distHtml = `<div class="card"><h3>地区(${wardKey})</h3><select id="eq_district" style="width:100%;margin:2px 0 4px"${dists ? '' : ' disabled'}>
+    <option value="">区の平均</option>${(dists ?? []).map(d => `<option value="${d.district}"${d === dist ? ' selected' : ''}>${d.district} (${pct(Math.expm1(d.effect), 0)}, ${d.n.toLocaleString()}件)</option>`).join('')}</select>
+    <div class="row"><span>区の平均との差</span><span>${pct(Math.expm1(dist?.effect ?? 0))}</span></div></div>`;
+  $('eq_cards_detail').innerHTML = defs.filter(d => !d.main).map(d => cardHtml(d) + (d.key === 'ward' ? distHtml : '')).join('');
+  $('eq_district').onchange = e => { if (e.target.value) SEL.district = e.target.value; else delete SEL.district; renderCards(); syncProperty(['district']); };
+  for (const e of document.querySelectorAll('.cards .row.opt')) e.onclick = () => {
+    SEL[e.dataset.card] = e.dataset.key;
+    if (e.dataset.card === 'ward') delete SEL.district;  // 地区は区の中で選ぶので、区を変えたら区の平均に戻す
+    renderCards(); syncProperty([e.dataset.card]);
+  };
 
   // 区の効果(選択中の基準の区との差)。区が多い全都市プールでは上位・下位20区
   const ward = defs.find(d => d.key === 'ward'), w0 = sel(ward);
@@ -763,6 +813,22 @@ function renderCards() {
     { x: xs, y: xs.map(a => price * Math.exp(ageLn(a) - a0.ln) / 1e4), mode: 'lines+markers', line: { color: css('--s1'), width: 1.5 }, marker: { size: 4 }, hovertemplate: '築%{x}年: %{y:,.0f}万円<extra></extra>' },
     { x: [a0.key], y: [price / 1e4], mode: 'markers', marker: { color: css('--s1'), size: 10, line: { color: css('--surface'), width: 2 } }, hovertemplate: '基準 築%{x}年: %{y:,.0f}万円<extra></extra>' },
   ], layout({ ...small, xaxis: { title: { text: '築年数(年)' } }, yaxis: { ...priceAxis, rangemode: 'tozero' } }), CFG);
+  // 面積のグラフ: 選択中の基準の物件で面積だけ変えた場合(区分で推定した種別は各区分の値)
+  const areaDef = defs.find(d => d.key === 'area'), ar0 = sel(areaDef), ac = areaCurve;
+  $('areacurve_sub').textContent = f.area_step ? `(基準の物件で面積だけ変えた場合。${f.area_step}㎡ごとに推定)` : '(基準の物件で面積だけ変えた場合。ln(面積)で推定)';
+  Plotly.react('chart_areacurve', [
+    { x: ac.x, y: ac.ln.map(v => price * Math.exp(v - ar0.ln) / 1e4), text: ac.x.map(ac.label), mode: 'lines+markers', line: { color: css('--s1'), width: 1.5 },
+      marker: { size: f.area_step ? 4 : 0 }, hovertemplate: '%{text}: %{y:,.0f}万円<extra></extra>' },
+    { x: [ar0.key], y: [price / 1e4], text: [ar0.label], mode: 'markers', marker: { color: css('--s1'), size: 10, line: { color: css('--surface'), width: 2 } }, hovertemplate: '基準 %{text}: %{y:,.0f}万円<extra></extra>' },
+  ], layout({ ...small, xaxis: { title: { text: `${areaDef.title}(㎡${f.area_step ? '、区分の下限' : ''})` } }, yaxis: { ...priceAxis, rangemode: 'tozero' } }), CFG);
+  // 駅距離のグラフ: 選択中の基準の物件で駅距離だけ変えた場合(区間で推定した種別は各区間の値)
+  const stDef = defs.find(d => d.key === 'station'), st0 = sel(stDef), sc = stationCurve;
+  $('stationcurve_sub').textContent = f.station_step ? `(基準の物件で駅距離だけ変えた場合。${f.station_step}分ごとの区間、30分以上は1区間)` : '(基準の物件で駅距離だけ変えた場合。1次の項で推定)';
+  Plotly.react('chart_stationcurve', [
+    { x: sc.x, y: sc.ln.map(v => price * Math.exp(v - st0.ln) / 1e4), text: sc.x.map(sc.label), mode: 'lines+markers', line: { color: css('--s1'), width: 1.5 },
+      marker: { size: f.station_step ? 6 : 0 }, hovertemplate: '徒歩%{text}: %{y:,.0f}万円<extra></extra>' },
+    { x: [st0.key], y: [price / 1e4], text: [sc.label(+st0.key)], mode: 'markers', marker: { color: css('--s1'), size: 10, line: { color: css('--surface'), width: 2 } }, hovertemplate: '基準 徒歩%{text}: %{y:,.0f}万円<extra></extra>' },
+  ], layout({ ...small, xaxis: { title: { text: `最寄駅徒歩(分${f.station_step ? '、区間の下限' : ''})` } }, yaxis: { ...priceAxis, rangemode: 'tozero' } }), CFG);
   const year = defs.find(d => d.key === 'year');
   if (year) {
     const ys = year.opts.slice().sort((a, b) => a.key - b.key), y0 = sel(year);
@@ -808,10 +874,10 @@ function renderFit() {
 
   const sig = p => p < 0.001 ? '***' : p < 0.01 ? '**' : p < 0.05 ? '*' : '';
   $('coef_table').innerHTML = '<tr><th>変数</th><th>係数</th><th>標準誤差</th><th>t値</th><th>p値</th><th>95%信頼区間</th><th>価格への効果</th></tr>' +
-    f.coefficients.filter(r => !r.name.startsWith('age=')).map(r => `<tr><td>${r.label}</td><td>${r.coef.toPrecision(4)}</td><td>${r.se.toPrecision(3)}</td><td>${r.t.toFixed(1)}</td>
+    f.coefficients.filter(r => !r.name.startsWith('age=') && !r.name.startsWith('area=')).map(r => `<tr><td>${r.label}</td><td>${r.coef.toPrecision(4)}</td><td>${r.se.toPrecision(3)}</td><td>${r.t.toFixed(1)}</td>
       <td>${r.p < 0.001 ? '<0.001' : r.p.toFixed(3)} ${sig(r.p)}</td><td>[${r.ci_low.toPrecision(3)}, ${r.ci_high.toPrecision(3)}]</td>
       <td>${['const', 'ln_area', 'ln_land', 'ln_pop'].includes(r.name) ? (r.name.startsWith('ln_') ? '1%増で ' + pct(r.coef / 100, 2) : '—') : pct(Math.expm1(r.coef))}</td></tr>`).join('');
-  $('coef_note').textContent = `築年数(1年刻み、基準 築${f.base_age}年)の係数は上の「築年数と価格」のグラフを参照。標準誤差: ${f.se_type}。*** p<0.001, ** p<0.01, * p<0.05。区・取引年の固定効果は下のグラフに表示。`;
+  $('coef_note').textContent = `築年数(1年刻み、基準 築${f.base_age}年)の係数は上の「築年数と価格」のグラフを参照。${f.area_step ? `面積(${f.area_step}㎡刻み、基準 ${f.base.area}〜${f.base.area + f.area_step}㎡)の係数は面積のカードと断面グラフを参照。` : ''}標準誤差: ${f.se_type}。*** p<0.001, ** p<0.01, * p<0.05。区・取引年の固定効果は下のグラフに表示。`;
 
   const h = f.residual_hist, mid = h.counts.map((_, i) => (h.edges[i] + h.edges[i + 1]) / 2);
   Plotly.react('chart_resid', [{ x: mid, y: h.counts, type: 'bar', marker: { color: css('--s1') }, hovertemplate: '残差 %{x:.2f}: %{y:,}件<extra></extra>' }],

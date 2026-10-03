@@ -95,3 +95,37 @@ def test_centering_moves_only_the_intercept():
                             renovated=f1.design.levels["renovated"][0], ward=f1.design.levels["ward"][0],
                             year=f1.design.levels["year"][0])
     assert f1.coef("const")[0] == pytest.approx(f1.predict(ref)[0][0])  # 切片 = 基準物件の ln価格
+
+
+def test_area_step_dummies():
+    df = synthetic(n=20000)
+    spec = Spec(area_step=5, ref_area=60)
+    f = fit(df, spec)
+    design = build_design(df, spec)
+    assert "ln_area" not in f.design.names and f.design.levels["area"][0] == 60  # 基準は 60〜65㎡
+    assert f.design.labels[f.design.names.index("area=20")] == "建物面積: 20〜25㎡ (基準: 60〜65㎡)"
+    ref = sm.OLS(np.log(df["price"].to_numpy()), design.matrix(df)).fit(cov_type="HC1")
+    np.testing.assert_allclose(f.beta, ref.params, rtol=1e-6, atol=1e-8)
+    # 真値は 0.9·ln(面積)。区分の中央どうしの比で比べる
+    b, se = f.coef("area=30")
+    assert abs(b - 0.9 * np.log(32.5 / 62.5)) < 4 * se
+    # 区分の中はどの面積でも同じ予測、データにない面積は最も近い区分で代用
+    rows = df.head(1).assign(area=[60.0]).loc[[df.index[0]] * 4].assign(area=[60.0, 64.9, 500.0, 99.0])
+    mu = f.predict(rows)[0]
+    assert mu[0] == pytest.approx(mu[1]) and mu[2] == pytest.approx(mu[3])
+
+
+def test_station_step_blocks():
+    df = synthetic(n=20000)
+    df.loc[df.index[:200], "station_min"] = 45.0  # 30分以上は1区間
+    spec = Spec(station_step=5, ref_station=10)
+    f = fit(df, spec)
+    assert "station_min" not in f.design.names and f.design.levels["station"] == [10, 0, 5, 15, 30]
+    assert f.design.labels[f.design.names.index("station=30")] == "駅徒歩: 30分以上 (基準: 10〜14分)"
+    ref = sm.OLS(np.log(df["price"].to_numpy()), build_design(df, spec).matrix(df)).fit(cov_type="HC1")
+    np.testing.assert_allclose(f.beta, ref.params, rtol=1e-6, atol=1e-8)
+    b, se = f.coef("station=15")  # 真値は 1分あたり −0.01。区間の平均(17 と 12分)の差
+    assert abs(b - (-0.01 * 5)) < 4 * se
+    rows = df.head(1).loc[[df.index[0]] * 3].assign(station_min=[30.0, 120.0, 22.0])  # 20〜24分はデータにないので最も近い区間
+    mu = f.predict(rows)[0]
+    assert mu[0] == pytest.approx(mu[1]) and mu[2] == pytest.approx(f.predict(rows.assign(station_min=15.0))[0][2])

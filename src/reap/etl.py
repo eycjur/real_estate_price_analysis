@@ -78,6 +78,22 @@ def _bins(s: pd.Series, edges: list[float], unit: str) -> pd.Series:
     return pd.cut(_num(s), edges, right=False, labels=labels).astype(object).fillna("不明")
 
 
+# 構造は SRC・RC・鉄骨造・木造の4区分にまとめる。軽量鉄骨造と、耐用年数が鉄骨造に近いブロック造(住宅で38年、鉄骨造34年)は鉄骨造。
+# 混構造(「SRC、RC」など)は含まれる構造のうち STRUCTURE_ORDER で先に来るもの(強いもの)にする
+STRUCTURE_GROUP = {"SRC": "SRC", "RC": "RC", "鉄骨造": "鉄骨造", "軽量鉄骨造": "鉄骨造", "ブロック造": "鉄骨造", "木造": "木造"}
+STRUCTURE_ORDER = ["SRC", "RC", "鉄骨造", "木造"]
+
+
+def _structure(s: pd.Series) -> pd.Series:
+    """建物の構造(「、」区切りの混構造を含む)を4区分にする。未記載は「不明」。"""
+    def one(v):
+        if not isinstance(v, str):
+            return "不明"
+        groups = {STRUCTURE_GROUP[x] for x in v.split("、")}
+        return next(g for g in STRUCTURE_ORDER if g in groups)
+    return s.map(one)
+
+
 ROAD_PUBLIC = {"国道", "都道", "道道", "府道", "県道", "市道", "区道", "町道", "村道", "公道", "道路", "区画街路"}
 
 
@@ -163,9 +179,7 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
     df = df[df["remarks"].isna()]
     amin, amax = df["kind"].map({k: v[0] for k, v in AREA_RANGE.items()}), df["kind"].map({k: v[1] for k, v in AREA_RANGE.items()})
     df = df[(df["age"] >= 0) & (df["age"] <= 60) & (df["area"] >= amin) & (df["area"] <= amax) & (df["price"] > 0)]
-    # 主要構造以外(少数例や未記載)は「その他」にまとめる
-    main = {"mansion": ["RC", "SRC"], "house": ["木造", "軽量鉄骨造", "鉄骨造", "RC"], "bldg_rc": ["RC", "SRC"], "bldg_wood": ["木造", "軽量鉄骨造", "鉄骨造"]}
-    df["structure"] = [s if s in main[k] else "その他" for s, k in zip(df["structure"], df["kind"])]
+    df["structure"] = _structure(df["structure"])
     df["district_key"] = df["ward"] + " " + df["district"].fillna("(地区不明)")
     df["unit_price"] = df["price"] / df["area"]
     # 種別×都市×年ごとに㎡単価の上下0.5%を外れ値として除く

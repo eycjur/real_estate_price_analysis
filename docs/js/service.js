@@ -25,7 +25,8 @@ async function context(p) {
 function spec(meta, kind, pooled) {
   const ref = meta.reference[kind];
   return { pooled, lambda: meta.district_lambda, vars: meta.variables[kind], baseLevels: ref.base_levels,
-    ref: { age: ref.ref_age, area: ref.ref_area, land: ref.ref_land ?? 1, station: ref.ref_station } };
+    ref: { age: ref.ref_age, area: ref.ref_area, areaStep: ref.area_step ?? null, land: ref.ref_land ?? 1, station: ref.ref_station,
+      stationStep: ref.station_step ?? null } };
 }
 
 /** 全変数+地区効果(L2)の推定。条件ごとにキャッシュする。 */
@@ -88,11 +89,14 @@ export async function fitSummary(p) {
   const s = f.design.spec, age = f.design.vars[0];
   let maxYear = 0;
   if (pooled) { const w = ds.wards.indexOf(baseWard); for (const r of rows) if (ds.cols.ward[r] === w) maxYear = Math.max(maxYear, year(ds, r)); }
-  const base = { age: +age.levels[0], area: s.ref.area, station_min: s.ref.station, ward: baseWard, year: baseYear ?? maxYear,
+  // 面積・駅徒歩を区分で入れる種別は、基準の区分の下限を基準の値にする
+  const baseOf = name => +f.design.vars.find(v => v.name === name).levels[0];
+  const base = { age: +age.levels[0], area: s.ref.areaStep ? baseOf('area') : s.ref.area, station_min: s.ref.stationStep ? baseOf('station') : s.ref.station, ward: baseWard, year: baseYear ?? maxYear,
     price: Math.exp(pooled ? coef(f, `ward=${baseWard}`).coef : coef(f, 'const').coef) };
   if (f.design.house) base.land_area = s.ref.land;
 
   const shown = sample(rows.map((_, i) => i), PRED_ACTUAL_POINTS, 0);
+  const areas = Array.from(rows, r => ds.cols.area[r]);
   const cats = {};
   for (const v of f.design.vars) if (m.variables[p.kind].includes(v.name)) cats[v.name] = { label: m.labels[v.name], levels: v.levels };
   return {
@@ -100,7 +104,8 @@ export async function fitSummary(p) {
     n, r2: f.r2, adj_r2: f.adjR2, rmse: f.rmse, mae: f.mae, typical_error_pct: Math.expm1(f.rmse), se_type: f.seType,
     within_20pct: within20 / n, within_1sd: within1sd / n, base,
     pred_actual: { pred: shown.map(i => Math.round(Math.exp(ds.lnPrice[rows[i]] - resid[i]) / 1000) * 1000), actual: shown.map(i => yen(ds, rows[i])) },
-    coefficients: rowsTable.filter(r => !FE_PREFIX.some(x => r.name.startsWith(x))), base_age: +age.levels[0],
+    coefficients: rowsTable.filter(r => !FE_PREFIX.some(x => r.name.startsWith(x))), base_age: +age.levels[0], area_step: s.ref.areaStep, station_step: s.ref.stationStep,
+    area_range: [Math.max(15, quantile(areas, 0.01)), quantile(areas, 0.99)],  // 面積のグラフの範囲(断面グラフと同じ)
     categoricals: cats, dropped: f.design.dropped, holdout: await holdout(p),
     year_effects: years, base_year: baseYear, ward_effects: wards.sort((a, b) => b.coef - a.coef), base_ward: baseWard,
     age_effects: [[0, 10], [10, 20], [20, 30], [30, 40]].map(([a, b]) => ({ from: a, to: b, pct: Math.expm1(ageEffect(f, a, b).effect) })),
@@ -142,7 +147,14 @@ function property(f, m, input, overrides = {}) {
 
 const VARY = {
   age: ['築年数(年)', () => Array.from({ length: 61 }, (_, i) => i)],
-  area: ['建物面積(㎡)', a => linspace(Math.max(15, quantile(a.area, 0.01)), quantile(a.area, 0.99), 50)],
+  // 面積を区分で入れる種別は、各区分の中央の値(例: 20〜25㎡ → 22.5㎡)を並べる
+  area: ['建物面積(㎡)', (a, step) => {
+    const lo = Math.max(15, quantile(a.area, 0.01)), hi = quantile(a.area, 0.99);
+    if (!step) return linspace(lo, hi, 50);
+    const out = [];
+    for (let b = Math.floor(lo / step) * step; b <= hi; b += step) out.push(b + step / 2);
+    return out;
+  }],
   land_area: ['土地面積(㎡)', a => linspace(quantile(a.land_area, 0.01), quantile(a.land_area, 0.99), 50)],
   station_min: ['最寄駅徒歩(分)', () => Array.from({ length: 31 }, (_, i) => i)],
   year: ['取引年', a => [...new Set(a.year)].sort((x, y) => x - y)],
@@ -154,7 +166,7 @@ export async function profile({ fit: p, vary, property: input }) {
   const f = await getFit(p), m = await loadMeta(), { ds, rows } = f;
   const column = name => Array.from(rows, r => name === 'year' ? year(ds, r) : ds.cols[name][r]);
   const [label, gridOf] = VARY[vary];
-  const grid = gridOf({ get area() { return column('area'); }, get land_area() { return column('land_area'); }, get year() { return column('year'); } });
+  const grid = gridOf({ get area() { return column('area'); }, get land_area() { return column('land_area'); }, get year() { return column('year'); } }, f.design.spec.ref.areaStep);
   const { view, prop, inWard } = property(f, m, input);
   const out = { price: [], ci_low: [], ci_high: [], pi_low: [], pi_high: [] };
   for (const x of grid) {

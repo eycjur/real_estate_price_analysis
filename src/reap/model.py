@@ -26,6 +26,7 @@ CATEGORICALS = {
 }
 FE_LABEL = {"ward": "区", "year": "取引年", "_cy": "都市×年"}
 FE_PREFIX = tuple(f"{v}=" for v in FE_LABEL)
+STATION_CAP = 30  # 駅徒歩の区間は この分数以上を1区間にまとめる(元データも30分以上は「30分〜60分」などの幅でしかない)
 
 
 @dataclass(frozen=True)
@@ -33,8 +34,10 @@ class Spec:
     """説明変数の構成。築年数は1年刻みのカテゴリ変数(基準 = ref_age)で入れ、曲線の形を仮定しない。"""
 
     use_area: bool = True
+    area_step: int | None = None  # 指定すると面積を step㎡ 刻みのカテゴリ変数(基準 = ref_area を含む区分)にする。None なら ln 面積
     use_land: bool = False  # 戸建用: ln 土地面積
     use_station: bool = True
+    station_step: int | None = None  # 指定すると駅徒歩分を step分 刻みの区間(30分以上は1区間)にする。None なら1次の項
     use_population: bool = False
     categoricals: tuple[str, ...] = ("structure", "renovated")
     # "ward+year": 区FE+年FE(都市内分析用) / "ward+cityyear": 区FE+都市×年FE(全都市プール用)
@@ -67,11 +70,11 @@ class Design:
         cols: list[np.ndarray] = []
         if s.fixed_effects == "ward+year":
             cols.append(np.ones(len(df)))
-        if s.use_area:
+        if s.use_area and s.area_step is None:
             cols.append(np.log(df["area"].to_numpy(float) / s.ref_area))
         if s.use_land:
             cols.append(np.log(df["land_area"].to_numpy(float) / s.ref_land))
-        if s.use_station:
+        if s.use_station and s.station_step is None:
             cols.append(df["station_min"].to_numpy(float) - s.ref_station)
         if s.use_population:
             cols.append(np.log(df["population"].to_numpy(float)))
@@ -81,7 +84,9 @@ class Design:
         D = np.zeros((len(df), n_dummy))
         rows, off = np.arange(len(df)), 0
         for var, levels in self.levels.items():
-            v = city_year(df) if var == "_cy" else self.age_level(df["age"]) if var == "age" else df[var]
+            v = (city_year(df) if var == "_cy" else self.age_level(df["age"]) if var == "age"
+                 else self.area_level(df["area"]) if var == "area"
+                 else self.station_level(df["station_min"]) if var == "station" else df[var])
             codes = pd.Index(levels).get_indexer(v)  # 水準にない値(基準として落とした都市×年など)は -1
             hit = codes >= 1
             D[rows[hit], off + codes[hit] - 1] = 1.0
@@ -92,10 +97,32 @@ class Design:
 
     def age_level(self, age) -> np.ndarray:
         """築年数を、推定に使った水準のうち最も近い年に丸める(データにない築年数や60年超の予測用)。"""
-        lv = np.sort(np.array(self.levels["age"], dtype=float))
-        a = np.asarray(age, dtype=float)
-        i = np.clip(np.searchsorted(lv, a), 1, len(lv) - 1)
-        return np.where(a - lv[i - 1] <= lv[i] - a, lv[i - 1], lv[i]).astype(int)
+        return _nearest(self.levels["age"], age)
+
+    def area_level(self, area) -> np.ndarray:
+        """面積を区分の下限(step㎡ 刻み)にし、推定に使った区分のうち最も近いものに丸める。"""
+        return _nearest(self.levels["area"], area_bin(area, self.spec.area_step))
+
+    def station_level(self, minutes) -> np.ndarray:
+        """駅徒歩分を区間の下限にし、推定に使った区間のうち最も近いものに丸める。"""
+        return _nearest(self.levels["station"], station_bin(minutes, self.spec.station_step))
+
+
+def area_bin(area, step: int) -> np.ndarray:
+    """面積の区分の下限。例: step=5 なら 20〜24.9㎡ → 20。"""
+    return (np.floor(np.asarray(area, dtype=float) / step) * step).astype(int)
+
+
+def station_bin(minutes, step: int) -> np.ndarray:
+    """駅徒歩の区間の下限。例: step=5 なら 10〜14分 → 10、30分以上 → 30。"""
+    return np.minimum(np.floor(np.asarray(minutes, dtype=float) / step) * step, STATION_CAP).astype(int)
+
+
+def _nearest(levels: list, x: np.ndarray) -> np.ndarray:
+    lv = np.sort(np.array(levels, dtype=float))
+    x = np.asarray(x, dtype=float)
+    i = np.clip(np.searchsorted(lv, x), 1, len(lv) - 1)
+    return np.where(x - lv[i - 1] <= lv[i] - x, lv[i - 1], lv[i]).astype(int)
 
 
 def build_design(df: pd.DataFrame, spec: Spec) -> Design:
@@ -107,11 +134,11 @@ def build_design(df: pd.DataFrame, spec: Spec) -> Design:
             return f"ln {label}" if ref == 1 else f"ln({label}/{ref:g})"
         return label if ref == 0 else f"({label}−{ref:g})"
 
-    if spec.use_area:
+    if spec.use_area and spec.area_step is None:
         names.append("ln_area"); labels.append(centered("建物面積㎡", spec.ref_area, log=True))
     if spec.use_land:
         names.append("ln_land"); labels.append(centered("土地面積㎡", spec.ref_land, log=True))
-    if spec.use_station:
+    if spec.use_station and spec.station_step is None:
         names.append("station_min"); labels.append(centered("駅徒歩分", spec.ref_station))
     if spec.use_population:
         names.append("ln_pop"); labels.append("ln 区人口")
@@ -123,6 +150,18 @@ def build_design(df: pd.DataFrame, spec: Spec) -> Design:
     ages = df["age"].round().astype(int)
     base_age = int(spec.ref_age) if (ages == int(spec.ref_age)).any() else int(ages.mode().iloc[0])
     levels: dict[str, list] = {"age": [base_age] + sorted(set(ages.unique().tolist()) - {base_age})}
+    # 面積: step㎡ 刻み。基準は ref_area を含む区分(データになければ最も多い区分)
+    if spec.use_area and spec.area_step is not None:
+        bins = pd.Series(area_bin(df["area"], spec.area_step))
+        ref_bin = int(area_bin(spec.ref_area, spec.area_step))
+        base_bin = ref_bin if (bins == ref_bin).any() else int(bins.mode().iloc[0])
+        levels["area"] = [base_bin] + sorted(set(bins.unique().tolist()) - {base_bin})
+    # 駅徒歩: step分 刻みの区間。基準は ref_station を含む区間(データになければ最も多い区間)
+    if spec.use_station and spec.station_step is not None:
+        bins = pd.Series(station_bin(df["station_min"], spec.station_step))
+        ref_bin = int(station_bin(spec.ref_station, spec.station_step))
+        base_bin = ref_bin if (bins == ref_bin).any() else int(bins.mode().iloc[0])
+        levels["station"] = [base_bin] + sorted(set(bins.unique().tolist()) - {base_bin})
     levels.update({c: by_freq(c) for c in spec.categoricals})
     for var, base in spec.base_levels:
         if var in levels and base in levels[var]:
@@ -137,12 +176,20 @@ def build_design(df: pd.DataFrame, spec: Spec) -> Design:
         base = {f"{c}|{y}" for c, y in latest.items()}
         levels["ward"] = ["__none__"] + by_freq("ward")
         levels["_cy"] = ["__none__"] + [c for c in cy if c not in base]
-    unit = {**CATEGORICALS, **FE_LABEL, "age": "築年数"}
+    unit = {**CATEGORICALS, **FE_LABEL, "age": "築年数", "area": "建物面積", "station": "駅徒歩"}
+
+    def shown(var, x):
+        if var == "area":
+            return f"{x}〜{x + spec.area_step}㎡"
+        if var == "station":
+            return f"{x}分以上" if x >= STATION_CAP else f"{x}〜{x + spec.station_step - 1}分"
+        return x
+
     for var, lv in levels.items():
         for x in lv[1:]:
             names.append(f"{var}={x}")
-            base_txt = "" if lv[0] == "__none__" else f" (基準: {lv[0]})"
-            labels.append(f"{unit.get(var, var)}: {x}{base_txt}")
+            base_txt = "" if lv[0] == "__none__" else f" (基準: {shown(var, lv[0])})"
+            labels.append(f"{unit.get(var, var)}: {shown(var, x)}{base_txt}")
     return Design(spec, names, labels, levels)
 
 

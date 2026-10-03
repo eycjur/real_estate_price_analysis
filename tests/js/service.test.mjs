@@ -29,6 +29,18 @@ test('fit: 切片がそのまま基準物件の価格になる', async () => {
   close(p.price[b.age], b.price);
 });
 
+test('fit/profile: 面積は5㎡刻みの区分。基準の区分と、区分の中央を並べた断面', async () => {
+  const r = await routes.fit(FIT);
+  assert.equal(r.area_step, 5); assert.equal(r.base.area, 60);
+  assert.ok(r.coefficients.some(c => c.name === 'area=20') && !r.coefficients.some(c => c.name === 'ln_area'));
+  const p = await routes.profile({ fit: FIT, vary: 'area', property: { ward: 'B区', age: 10 } });
+  assert.ok(p.x.every(x => x % 5 === 2.5) && p.x.every((x, i) => i === 0 || x - p.x[i - 1] === 5));
+  assert.ok(p.price.at(-1) > p.price[0]);  // 合成データは面積とともに上がる
+  const cats = Object.fromEntries(Object.entries(r.categoricals).map(([k, v]) => [k, v.levels[0]]));  // 未指定だと面積の近い取引の最頻値になる
+  const at = async area => (await routes.profile({ fit: FIT, vary: 'age', property: { ward: 'B区', area, ...cats } })).price[10];
+  close(await at(60), await at(64)); assert.ok(await at(65) !== await at(64));  // 区分の中は同じ推定
+});
+
 test('profile: 築年数で下がり、帯が推定を挟む。地区を選ぶと地区効果ぶん動く', async () => {
   const plain = await routes.profile({ fit: FIT, vary: 'age', property: { ward: 'B区', area: 60 } });
   assert.ok(plain.price[0] > plain.price.at(-1) && plain.n_points > 0 && plain.fixed.ward === 'B区');

@@ -16,6 +16,8 @@ const ds = await loadDataset('mansion', 'X市');
 const city = fit(ds, all(ds.n), { ...spec, pooled: false }, meta);
 const prop = { age: 23, area: 72, station_min: 5, ward: ds.wards.indexOf('B区'), year: 2018, city: 0, district: 3, cats: { structure: 1, renovated: 0, dup: 0 } };
 const pooledDs = await loadAll('mansion');
+const areaSpec = { ...spec, pooled: false, ref: { ...spec.ref, areaStep: 5, stationStep: 5 } }, cityArea = fit(ds, all(ds.n), areaSpec, meta);
 const pooled = fit(pooledDs, all(pooledDs.n), { ...spec, pooled: true }, meta, { cluster: true });
-console.log(JSON.stringify({ city: dump(city), pooled: dump(pooled), predict: predict(city, prop), predict_district: `${ds.wards[ds.districts[3].ward]} ${ds.districts[3].name}`,
+console.log(JSON.stringify({ city: dump(city), city_area: dump(cityArea), pooled: dump(pooled), predict: predict(city, prop),
+  predict_area: [[72, 5], [500, 90]].map(([area, station_min]) => predict(cityArea, { ...prop, area, station_min })), predict_district: `${ds.wards[ds.districts[3].ward]} ${ds.districts[3].name}`,
   age_effect: ageEffect(city, 12, 31), age_effect_far: ageEffect(city, 10, 200) }));

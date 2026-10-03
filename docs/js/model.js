@@ -9,7 +9,8 @@ import { cholInverse, cholSolve, cholesky, independentColumns, matmul } from './
 import { erfc } from './stats.js';
 
 export const FE_PREFIX = ['ward=', 'year=', '_cy='];
-const FE_LABEL = { age: '築年数', ward: '区', year: '取引年', _cy: '都市×年' };
+const FE_LABEL = { age: '築年数', area: '建物面積', station: '駅徒歩', ward: '区', year: '取引年', _cy: '都市×年' };
+const STATION_CAP = 30;  // 駅徒歩の区間は この分数以上を1区間にまとめる(元データも30分以上は幅でしかない)
 
 /** 都市×年のコード(都市番号×32 + 西暦−2000)。全都市プールの固定効果用。 */
 function cityYear(ds) {
@@ -21,16 +22,18 @@ function cityYear(ds) {
 }
 
 /**
- * spec: { pooled, lambda, ref: {age, area, land, station}, vars: [カテゴリ変数], baseLevels: {変数: 水準名} }
+ * spec: { pooled, lambda, ref: {age, area, areaStep, land, station, stationStep}, vars: [カテゴリ変数], baseLevels: {変数: 水準名} }
  * pooled=false は 区FE+年FE(都市内)、true は 区FE+都市×年FE(全都市プール、定数項なし)。
+ * ref.areaStep を指定すると面積を step㎡ 刻みのカテゴリ変数(基準 = ref.area を含む区分)にし、なければ ln 面積で入れる。
+ * ref.stationStep を指定すると駅徒歩分を step分 刻みの区間(30分以上は1区間、基準 = ref.station を含む区間)にし、なければ1次の項で入れる。
  */
 export function buildDesign(ds, rows, spec, meta) {
-  const house = !!ds.lnLand;
-  const numeric = [...(spec.pooled ? [] : ['const']), 'ln_area', ...(house ? ['ln_land'] : []), 'station_min'];
+  const house = !!ds.lnLand, step = spec.ref.areaStep, sstep = spec.ref.stationStep;
+  const numeric = [...(spec.pooled ? [] : ['const']), ...(step ? [] : ['ln_area']), ...(house ? ['ln_land'] : []), ...(sstep ? [] : ['station_min'])];
   const numericLabel = { const: '定数項', ln_area: `ln(建物面積㎡/${spec.ref.area})`, ln_land: `ln(土地面積㎡/${spec.ref.land})`, station_min: `(駅徒歩分−${spec.ref.station})` };
   const names = [...numeric], labels = numeric.map(n => numericLabel[n]);
 
-  const levelName = (v, code) => v === 'age' ? String(code) : v === 'ward' ? ds.wards[code] : v === 'year' ? String(2000 + code)
+  const levelName = (v, code) => v === 'age' ? String(code) : v === 'area' ? String(code * step) : v === 'station' ? String(code * sstep) : v === 'ward' ? ds.wards[code] : v === 'year' ? String(2000 + code)
     : v === '_cy' ? `${ds.cities[code >> 5]}|${2000 + (code & 31)}` : meta.levels[ds.kind][v][code];
   const counts = (codes, size) => { const c = new Float64Array(size); for (const r of rows) c[codes[r]]++; return c; };
   const byFreq = c => [...c.keys()].filter(i => c[i] > 0).sort((a, b) => c[b] - c[a] || a - b);
@@ -38,11 +41,13 @@ export function buildDesign(ds, rows, spec, meta) {
   const vars = [];
   const add = (name, codes, size, levels, hasBase) => {
     const map = new Int32Array(size).fill(-1);
-    const base = hasBase ? levelName(name, levels[0]) : null;
+    const shown = code => name === 'age' ? `${code}年` : name === 'area' ? `${code * step}〜${(code + 1) * step}㎡`
+      : name === 'station' ? (code * sstep >= STATION_CAP ? `${code * sstep}分以上` : `${code * sstep}〜${(code + 1) * sstep - 1}分`) : levelName(name, code);
+    const base = hasBase ? shown(levels[0]) : null;
     for (const code of levels.slice(hasBase ? 1 : 0)) {
       map[code] = names.length;
       names.push(`${name}=${levelName(name, code)}`);
-      labels.push(`${FE_LABEL[name] ?? meta.labels[name]}: ${levelName(name, code)}${name === 'age' ? '年' : ''}${base == null ? '' : ` (基準: ${base}${name === 'age' ? '年' : ''})`}`);
+      labels.push(`${FE_LABEL[name] ?? meta.labels[name]}: ${shown(code)}${base == null ? '' : ` (基準: ${base})`}`);
     }
     vars.push({ name, codes, map, levels: levels.map(c => levelName(name, c)), hasBase });
   };
@@ -51,6 +56,23 @@ export function buildDesign(ds, rows, spec, meta) {
   const ageCount = counts(ds.cols.age, 256), present = [...ageCount.keys()].filter(a => ageCount[a] > 0);
   const baseAge = ageCount[spec.ref.age] > 0 ? spec.ref.age : byFreq(ageCount)[0];
   add('age', ds.cols.age, 256, [baseAge, ...present.filter(a => a !== baseAge)], true);
+  nearestLevel(vars[0], present);
+  // 面積: step㎡ 刻みの区分(番号 = 面積÷step の切り捨て)。基準は ref.area を含む区分(データになければ最も多い区分)
+  if (step) {
+    const bins = Uint16Array.from(ds.cols.area, a => Math.floor(a / step));
+    const size = Math.floor(65535 / step) + 1, binCount = counts(bins, size), bp = [...binCount.keys()].filter(b => binCount[b] > 0);
+    const refBin = Math.floor(spec.ref.area / step), baseBin = binCount[refBin] > 0 ? refBin : byFreq(binCount)[0];
+    add('area', bins, size, [baseBin, ...bp.filter(b => b !== baseBin)], true);
+    nearestLevel(vars.at(-1), bp);
+  }
+  // 駅徒歩: sstep分 刻みの区間(番号 = 分÷sstep の切り捨て、30分以上は1区間)。基準は ref.station を含む区間
+  if (sstep) {
+    const top = Math.floor(STATION_CAP / sstep), bins = Uint8Array.from(ds.cols.station_min, m => Math.min(Math.floor(m / sstep), top));
+    const binCount = counts(bins, top + 1), bp = [...binCount.keys()].filter(b => binCount[b] > 0);
+    const refBin = Math.min(Math.floor(spec.ref.station / sstep), top), baseBin = binCount[refBin] > 0 ? refBin : byFreq(binCount)[0];
+    add('station', bins, top + 1, [baseBin, ...bp.filter(b => b !== baseBin)], true);
+    nearestLevel(vars.at(-1), bp);
+  }
   for (const v of spec.vars) {
     const levels = byFreq(counts(ds.cols[v], meta.levels[ds.kind][v].length));
     const want = meta.levels[ds.kind][v].indexOf(spec.baseLevels?.[v]);
@@ -70,15 +92,13 @@ export function buildDesign(ds, rows, spec, meta) {
     for (const c of cyCount.keys()) if (cyCount[c] > 0) latest.set(c >> 5, Math.max(latest.get(c >> 5) ?? 0, c & 31));
     add('_cy', cy, ds.cities.length * 32, [...cyCount.keys()].filter(c => cyCount[c] > 0 && (c & 31) !== latest.get(c >> 5)), false);
   }
-  const design = { spec, house, numeric, names, labels, vars, dropped: [], baseWard: spec.pooled ? null : ds.wards[wardLevels[0]] };
-  nearestAge(design, present);
-  return design;
+  return { spec, house, numeric, names, labels, vars, dropped: [], baseWard: spec.pooled ? null : ds.wards[wardLevels[0]] };
 }
 
-/** 築年数の列番号を、推定に使った水準のうち最も近い年のものにする(データにない築年数や60年超の予測用)。 */
-function nearestAge(design, present) {
-  const v = design.vars[0], exact = Int32Array.from(v.map);
-  for (let a = 0; a < 256; a++) {
+/** 築年数・面積の区分の列番号を、推定に使った水準のうち最も近いものにする(データにない築年数や60年超などの予測用)。 */
+function nearestLevel(v, present) {
+  const exact = Int32Array.from(v.map);
+  for (let a = 0; a < v.map.length; a++) {
     const near = present.reduce((best, p) => Math.abs(p - a) < Math.abs(best - a) ? p : best);
     v.map[a] = exact[near];
   }
@@ -89,9 +109,9 @@ function fillRow(design, ds, r, dv, ci) {
   const s = design.spec;
   let j = 0;
   if (!s.pooled) dv[j++] = 1;
-  dv[j++] = ds.lnArea[r] - Math.log(s.ref.area);
+  if (!s.ref.areaStep) dv[j++] = ds.lnArea[r] - Math.log(s.ref.area);
   if (design.house) dv[j++] = ds.lnLand[r] - Math.log(s.ref.land);
-  dv[j++] = ds.cols.station_min[r] - s.ref.station;
+  if (!s.ref.stationStep) dv[j++] = ds.cols.station_min[r] - s.ref.station;
   let nc = 0;
   for (const v of design.vars) { const c = v.map[v.codes[r]]; if (c >= 0) ci[nc++] = c; }
   return nc;
@@ -256,7 +276,9 @@ export function predict(f, prop) {
   const num = { const: 1, ln_area: Math.log(prop.area / s.ref.area), ln_land: Math.log(prop.land_area / s.ref.land), station_min: prop.station_min - s.ref.station };
   design.numeric.forEach((name, i) => { idx.push(i); val.push(num[name]); });
   for (const v of design.vars) {
-    const code = v.name === 'age' ? Math.max(0, Math.min(255, Math.round(prop.age))) : v.name === 'ward' ? prop.ward
+    const code = v.name === 'age' ? Math.max(0, Math.min(255, Math.round(prop.age)))
+      : v.name === 'area' ? Math.max(0, Math.min(v.map.length - 1, Math.floor(prop.area / s.ref.areaStep)))
+      : v.name === 'station' ? Math.max(0, Math.min(v.map.length - 1, Math.floor(prop.station_min / s.ref.stationStep))) : v.name === 'ward' ? prop.ward
       : v.name === 'year' ? prop.year - 2000 : v.name === '_cy' ? prop.city * 32 + prop.year - 2000 : prop.cats[v.name];
     const c = v.map[code] ?? -1;
     if (c >= 0) { idx.push(c); val.push(1); }

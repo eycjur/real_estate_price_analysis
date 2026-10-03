@@ -37,13 +37,16 @@ VARIABLES = {
     "bldg_rc": BLDG_VARIABLES, "bldg_wood": BLDG_VARIABLES,
 }
 # 切片に対応する「基準の物件」。連続変数はこの値からの差で入れ、カテゴリ項目は最頻の水準を基準にする
-# (マンションは 20㎡ に合わせて間取りの基準を 1K に固定)
+# (マンションは 20㎡ に合わせて間取りの基準を 1K に、価格情報の種類は成約価格に固定)。area_step があれば面積を その㎡刻みの区分で、
+# station_step があれば駅徒歩を その分刻みの区間(30分以上は1区間)で入れる
 REFERENCE = {
-    "mansion": {"ref_age": 10, "ref_area": 20, "ref_station": 10, "base_levels": {"layout": "1K"}},
-    "house": {"ref_age": 10, "ref_area": 100, "ref_land": 100, "ref_station": 10, "base_levels": {}},
-    # 一棟ものの基準は取引の中央値付近の規模
-    "bldg_rc": {"ref_age": 10, "ref_area": 600, "ref_land": 300, "ref_station": 10, "base_levels": {}},
-    "bldg_wood": {"ref_age": 10, "ref_area": 200, "ref_land": 180, "ref_station": 10, "base_levels": {}},
+    "mansion": {"ref_age": 20, "ref_area": 20, "area_step": 5, "ref_station": 10, "station_step": 5,
+                "base_levels": {"layout": "1K", "source": "成約価格(レインズ)"}},
+    "house": {"ref_age": 20, "ref_area": 100, "area_step": 5, "ref_land": 100, "ref_station": 10, "station_step": 5,
+              "base_levels": {"source": "成約価格(レインズ)"}},
+    # 一棟ものの基準は取引の中央値付近の規模。面積の幅(30〜3000㎡)が大きく区分が多くなりすぎるため ln 面積で入れる
+    "bldg_rc": {"ref_age": 20, "ref_area": 600, "ref_land": 300, "ref_station": 10, "station_step": 5, "base_levels": {}},
+    "bldg_wood": {"ref_age": 20, "ref_area": 200, "ref_land": 180, "ref_station": 10, "station_step": 5, "base_levels": {}},
 }
 # 「金利と価格指数」タブ。金利の系列名と、都市に対応する不動産価格指数の地域
 RATE_LABELS = {
@@ -107,7 +110,8 @@ def population_elasticity(tx: pd.DataFrame, kind: str) -> dict:
     """全都市プール・区FE+都市×年FEで ln(区人口) の係数を推定する(標準誤差は区クラスタ)。"""
     ref = REFERENCE[kind]
     spec = Spec(use_land=kind in LAND_KINDS, use_population=True, categoricals=tuple(VARIABLES[kind]),
-                fixed_effects="ward+cityyear", ref_age=ref["ref_age"], ref_area=ref["ref_area"],
+                fixed_effects="ward+cityyear", ref_age=ref["ref_age"], ref_area=ref["ref_area"], area_step=ref.get("area_step"),
+                station_step=ref.get("station_step"),
                 ref_land=ref.get("ref_land", 1.0), ref_station=ref["ref_station"],
                 base_levels=tuple(ref["base_levels"].items()))
     f = fit(tx[tx["kind"] == kind], spec, cluster=True)
