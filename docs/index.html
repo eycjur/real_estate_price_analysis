@@ -96,7 +96,7 @@ a { color: var(--accent); }
 .bigv { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .pos { color: var(--s3); }
 .neg { color: var(--hl-text); }
-#mode-sim td input { width: 80px; }
+#mode-sim td input[type=number] { width: 80px; }
 #sim_grid td { vertical-align: top; cursor: pointer; }
 #sim_grid td.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
 #sim_grid td .n { font-size: 11.5px; color: var(--muted); font-weight: 400; }
@@ -542,7 +542,9 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
       <details><summary>内訳</summary><div class="tblwrap"><table id="sim_run"></table></div></details></div>
     <div class="panel"><h2>入居者の入れ替え・空室のコスト(年平均)</h2><div class="bigv" id="sim_risk"></div><div class="note" id="sim_risk_n"></div>
       <details><summary>内訳</summary><div class="tblwrap"><table id="sim_turnover"></table></div></details></div>
-    <div class="panel" id="sim_tax_card" style="grid-column:1/-1" hidden><h2>節税効果(年)</h2><div class="bigv" id="sim_tax"></div><div class="note" id="sim_tax_n"></div>
+    <div class="panel" id="sim_tax_card" style="grid-column:1/-1" hidden>
+      <div class="filters" style="align-items:center;gap:10px"><h2 style="margin:0">節税効果(年)</h2>
+        <label class="f" style="flex-direction:row;align-items:center;gap:6px"><input type="number" id="s_tax_year" value="2" min="1" max="50" style="width:64px">年目</label></div><div class="bigv" id="sim_tax"></div><div class="note" id="sim_tax_n"></div>
       <details id="sim_tax_details"><summary>内訳(不動産所得の計算)</summary><div class="tblwrap"><table id="sim_tax_table"></table></div>
         <h3 class="ch" style="margin-top:10px">年ごとの節税効果 <span class="note">— マイナスは黒字で税金がかかる年</span></h3><div id="chart_sim_tax" class="chart xs"></div></details></div>
   </div>
@@ -1427,14 +1429,14 @@ async function renderRepayment() {
     yaxis2: { overlaying: 'y', side: 'right', showgrid: false, tickformat: ',', title: { text: '残高(万円)' }, rangemode: 'tozero' }, legend: { y: 1.15 }, margin: { t: 30, r: 60 } }), CFG);
 }
 
-// 収支シミュレーション。内訳の項目: [キー, 名前, 初期値, 単位]。man=万円(円に直して送る)、yen=円/月、pct=%、mon=家賃の何か月分、yr=年に1回
+// 収支シミュレーション。内訳の項目: [キー, 名前, 初期値, 単位, on/off切替]。man=万円(円に直して送る)、yen=円/月、pct=%、mon=家賃の何か月分、yr=年に1回
 // 家賃・管理費・修繕積立金・賃貸管理手数料は物件ごとに違うので上の入力欄に置き、内訳では金額だけ表示する
 let SIM;
 const SIM_ITEMS = {
   purchase: [['loan_fee_pct', 'ローン事務手数料・保証料(借入額の%)', 2.2, 'pct'], ['scrivener', '司法書士費用', 15, 'man'], ['registration_pct', '登録免許税(物件価格の%)', 1.2, 'pct'],
     ['stamp', '印紙税', 3, 'man'], ['acquisition_tax_pct', '不動産取得税(物件価格の%)', 0.7, 'pct'], ['fire_insurance', '火災保険(一括)', 3, 'man'], ['settlement', '精算金(固定資産税・管理費など)', 5, 'man']],
   running: [['property_tax', '固定資産税・都市計画税', 5000, 'yen'], ['equipment', '設備交換・修繕費', 3000, 'yen'], ['insurance', '火災・地震保険', 1000, 'yen'], ['accountant', '税理士費用', 0, 'yen']],
-  turnover: [['interval_years', '入れ替えの頻度', 4, 'yr'], ['restoration', '原状回復・クロス・ハウスクリーニング', 10, 'man'], ['move_out', '退去立会い・精算手数料', 2, 'man'], ['key', '鍵交換', 2, 'man'],
+  turnover: [['interval_years', '入れ替えの頻度', 4, 'yr'], ['restoration', '原状回復・クロス・ハウスクリーニング', 10, 'man', true], ['move_out', '退去立会い・精算手数料', 2, 'man'], ['key', '鍵交換', 2, 'man', true],
     ['utilities_month', '空室中の光熱費(円/月)', 3000, 'yen'], ['ad_months', '入居募集の広告料', 1, 'mon'], ['agent_months', '入居者の仲介手数料(オーナー負担分)', 0, 'mon'], ['free_rent_months', 'フリーレント', 0.5, 'mon'], ['vacancy_months', '空室期間(家賃が入らない)', 2, 'mon']],
 };
 const SIM_UNIT = { man: '万円', yen: '円/月', pct: '%', mon: 'か月分', yr: '年に1回' };
@@ -1444,7 +1446,9 @@ const yenS = v => (v < 0 ? '−' : '') + Math.round(Math.abs(v)).toLocaleString(
 const simRow = (label, out, input = '') => `<tr><td style="white-space:normal">${label}</td><td>${input}</td><td data-o="${out}"></td></tr>`;
 function initSim() {
   SIM = true;
-  const inp = (g, [k, , v, u]) => `<input type="number" data-g="${g}" data-k="${k}" data-u="${u}" value="${v}" min="0" step="${u === 'yen' ? 500 : u === 'man' ? 1 : 0.1}"> ${SIM_UNIT[u].replace('円/月', '円')}`;
+  // on/off切替のある項目は、チェックを外すと 0 円として計算する
+  const inp = (g, [k, , v, u, sw]) => (sw ? `<input type="checkbox" data-sw="${g}.${k}"> ` : '')
+    + `<input type="number" data-g="${g}" data-k="${k}" data-u="${u}" value="${v}" min="0" step="${u === 'yen' ? 500 : u === 'man' ? 1 : 0.1}"> ${SIM_UNIT[u].replace('円/月', '円')}`;
   const rows = g => SIM_ITEMS[g].map(it => simRow(it[1], g + '.' + it[0], inp(g, it))).join('');
   $('sim_purchase').innerHTML = simRow('頭金', 'purchase.down') + simRow('仲介手数料(上の入力欄で選択)', 'purchase.brokerage') + rows('purchase') + simRow('諸費用の合計(頭金を除く)', 'purchase.costs').replace('<tr>', '<tr class="total">');
   $('sim_run').innerHTML = simRow('管理費', 'running.management') + simRow('修繕積立金', 'running.repair_reserve') + simRow('賃貸管理手数料', 'running.rental_mgmt_pct') + rows('running');
@@ -1464,7 +1468,11 @@ function simParams() {
   const tax = $('s_tax').value;
   $('sim_tax_inputs').hidden = !tax;
   q.tax = tax ? { rate_pct: +tax, building_ratio_pct: +$('s_bldg').value, building_age: +$('s_age').value, legal_life: +$('s_structure').value, equipment_ratio_pct: +$('s_equipment').value } : null;  // 選択肢の value にリスクの前提を JSON で持たせている
-  for (const e of document.querySelectorAll('#mode-sim input[data-g]')) q[e.dataset.g][e.dataset.k] = +e.value * (e.dataset.u === 'man' ? 1e4 : 1);
+  for (const e of document.querySelectorAll('#mode-sim input[data-g]')) {
+    const sw = document.querySelector(`#mode-sim input[data-sw="${e.dataset.g}.${e.dataset.k}"]`);
+    if (sw) e.disabled = !sw.checked;
+    q[e.dataset.g][e.dataset.k] = e.disabled ? 0 : +e.value * (e.dataset.u === 'man' ? 1e4 : 1);
+  }
   return q;
 }
 // 収入・支出の積み上げ棒グラフ。各項目は [名前, 金額, 色]。3本目の棒は手残り(収入 − 支出)
@@ -1506,28 +1514,35 @@ async function renderSim() {
   $('sim_risk').textContent = man1(r.turnover.year);
   $('sim_risk_n').textContent = `1回 ${man1(r.turnover.per_turnover)} × ${iv}年に1回(月あたり ${yenS(r.turnover.year / 12)})。1年目の額`;
 
-  // 節税効果: 2年目(平年)を大きく出し、1年目(購入時の諸費用も経費)と設備の償却が終わった後の年を内訳に並べる
+  // 節税効果: 選んだ年(初期は平年の2年目)を大きく出し、内訳には1・2年目、設備の償却が終わった後の年、選んだ年を並べる
   $('sim_tax_card').hidden = !r.tax;
   if (r.tax) {
-    const T = r.yearly, cols = [0, 1, ...(r.tax.equipment > 0 && r.tax.equipment_life > 1 ? [r.tax.equipment_life] : [])];
+    const T = r.yearly, ty = Math.min(Math.max(1, Math.round(+$('s_tax_year').value) || 1), T.year.length) - 1;
+    $('s_tax_year').value = ty + 1;
+    const eqEnd = r.tax.equipment > 0 && r.tax.equipment_life > 1 ? r.tax.equipment_life : null;
+    const cols = [...new Set([0, 1, ...(eqEnd ? [eqEnd] : []), ty])].sort((a, b) => a - b);
     const save = j => -T.income_tax[j], sv = v => (v >= 0 ? '' : '−') + man1(Math.abs(v));
-    $('sim_tax').innerHTML = `<span class="${save(1) >= 0 ? 'pos' : 'neg'}">${save(1) >= 0 ? '' : '税金 '}${sv(Math.abs(save(1)))}</span>`;
-    $('sim_tax_n').textContent = `2年目、税率${r.tax.rate_pct}%(月あたり ${yenS(save(1) / 12)})。1年目は購入時の諸費用も経費になり ${sv(save(0))}` +
-      (cols.length > 2 ? `、設備の償却が終わる${r.tax.equipment_life + 1}年目からは ${sv(save(cols[2]))}` : '') + '。マイナスは黒字で税金がかかる額';
+    $('sim_tax').innerHTML = `<span class="${save(ty) >= 0 ? 'pos' : 'neg'}">${save(ty) >= 0 ? '' : '税金 '}${sv(Math.abs(save(ty)))}</span>`;
+    $('sim_tax_n').textContent = `${ty + 1}年目、税率${r.tax.rate_pct}%(月あたり ${yenS(save(ty) / 12)})。1年目は購入時の諸費用も経費になり ${sv(save(0))}` +
+      (eqEnd ? `、設備の償却が終わる${eqEnd + 1}年目からは ${sv(save(eqEnd))}` : '') + '。マイナスは黒字で税金がかかる額';
     const rows = [['家賃収入', j => T.rent[j]], ['経費(ローン元金を除く支出)', j => -(T.management[j] + T.repair[j] + T.rental_mgmt[j] + T.other[j] + T.turnover[j])],
       ['ローン利息', j => -T.interest[j]], [`減価償却 躯体(${r.tax.life}年)`, j => -T.dep_body[j]],
       ...(r.tax.equipment > 0 ? [[`減価償却 設備(${r.tax.equipment_life}年)`, j => -T.dep_equipment[j]]] : []),
       ['購入時の諸費用', j => j === 0 ? -r.tax.expensed : 0], ['土地分の利子(赤字と相殺できない)', j => T.interest_disallowed[j]]];
-    $('sim_tax_table').innerHTML = `<tr><th></th>${cols.map(j => `<th>${j + 1}年目</th>`).join('')}</tr>` +
+    $('sim_tax_table').innerHTML = `<tr><th></th>${cols.map(j => `<th>${j === ty ? `<b>${j + 1}年目</b>` : `${j + 1}年目`}</th>`).join('')}</tr>` +
       rows.map(([k, f]) => `<tr><td style="white-space:normal">${k}</td>${cols.map(j => `<td>${sv(f(j))}</td>`).join('')}</tr>`).join('') +
       `<tr class="total"><td>不動産所得</td>${cols.map(j => `<td>${sv(T.taxable[j])}</td>`).join('')}</tr>` +
       `<tr class="total"><td>節税効果(× 税率${r.tax.rate_pct}%)</td>${cols.map(j => `<td class="${save(j) >= 0 ? 'pos' : 'neg'}">${sv(save(j))}</td>`).join('')}</tr>`;
     // 推移と同じ期間の各年の節税効果(棒)と減価償却(線)
     const nT = Math.min(T.year.length, Math.max(30, Math.ceil(+$('s_years').value))), xT = T.year.slice(0, nT), sT = xT.map((_, j) => save(j) / 1e4);
     Plotly.react('chart_sim_tax', [
-      { x: xT, y: sT, type: 'bar', name: '節税効果', marker: { color: sT.map(v => css(v >= 0 ? '--s3' : '--hl-text')) }, hovertemplate: '%{x}年目: %{y:,.1f}万円<extra>節税効果</extra>' },
+      { x: xT, y: sT, type: 'bar', name: '節税効果', marker: { color: sT.map(v => css(v >= 0 ? '--s3' : '--hl-text')), opacity: xT.map(v => v === ty + 1 ? 1 : 0.6) }, hovertemplate: '%{x}年目: %{y:,.1f}万円<extra>節税効果</extra>' },
       { x: xT, y: T.depreciation.slice(0, nT).map(v => v / 1e4), mode: 'lines', name: '減価償却', line: { color: css('--text2'), width: 1.5, dash: 'dot', shape: 'hv' }, hovertemplate: '%{y:,.1f}万円<extra>減価償却</extra>' },
     ], layout({ xaxis: { title: { text: '保有年数' } }, yaxis: { title: { text: '万円/年' }, tickformat: ',', zeroline: true, zerolinecolor: css('--text2') }, legend: { y: 1.2 }, margin: { t: 30, l: 50, r: 10 } }), CFG);
+    if (!renderSim.taxBound) {
+      renderSim.taxBound = true;
+      $('chart_sim_tax').on('plotly_click', e => { $('s_tax_year').value = e.points[0].x; renderSim(); });
+    }
   }
 
   // 毎月の収支: 選んだ年の年間の値 ÷ 12
