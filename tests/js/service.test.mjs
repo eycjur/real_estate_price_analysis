@@ -192,12 +192,12 @@ test('loan-calc: 元利均等は毎月同額、元金均等は元金が一定。
 });
 
 test('cashflow: 購入時・ランニング・入れ替えのコストと、売却する年数×価格ごとの総収支・IRR', () => {
-  const q = { price: 2e7, rent_month: 8e4, rate: 0, years: 20, down_pct: 10, brokerage: false, sale_brokerage: true,
+  const q = { price: 2e7, rent_month: 8e4, units: 1, rent_change_pct: 0, price_change_pct: 0, rate: 0, years: 20, down_pct: 10, brokerage: false, sale_brokerage: true,
     purchase: { loan_fee_pct: 2.2, scrivener: 15e4, registration_pct: 1.2, stamp: 3e4, acquisition_tax_pct: 0.7, fire_insurance: 3e4, settlement: 5e4 },
-    running: { management: 9000, repair_reserve: 9000, rental_mgmt_pct: 5, property_tax: 5000, equipment: 3000, insurance: 1000, accountant: 0 },
+    running: { management: 9000, repair_reserve: 9000, rental_mgmt_pct: 5, property_tax: 5000, equipment: 3000, insurance: 1000, earthquake_insurance: 0, earthquake_insurance: 0, accountant: 0 },
     turnover: { interval_years: 4, restoration: 10e4, move_out: 2e4, key: 2e4, utilities_month: 3000, ad_months: 1, agent_months: 0.5, free_rent_months: 0.5, vacancy_months: 2 } };
   const r = routes.cashflow(q);
-  assert.deepEqual([r.hold_years, r.price_changes], [[5, 10, 15, 20, 30], [-30, -20, -10, 0, 10, 20]]);
+  assert.deepEqual([r.hold_years, r.price_changes], [[5, 10, 15, 20, 30], [-2, -1, -0.5, 0, 0.5, 1]]);
   close(r.loan_amount, 1.8e7);
   close(r.initial.costs, 103.6e4); close(r.initial.total, 303.6e4);  // 事務手数料39.6万+登録免許税24万+取得税14万+定額26万、頭金200万
   close(r.running.month, 31000);  // 管理手数料は家賃の5%=4000円
@@ -214,37 +214,52 @@ test('cashflow: 購入時・ランニング・入れ替えのコストと、売�
   close(g.rent + g.sale_price - r.initial.total - g.management - g.repair - g.rental_mgmt - g.other - g.turnover - g.interest - g.principal - g.sale_cost - g.balance, g.total, 1e-6);
   const g30 = r.grid[4][3];  // 返済期間(20年)を過ぎると残債0・返済なし
   close(g30.balance, 0); close(g30.cash_flow, 20 * -42.85e4 + 10 * 47.15e4);
-  assert.equal(r.grid[0][0].irr, null);  // 5年後に3割安で売ると売却代金が残債に届かず、最後まで支出だけ
+  close(r.grid[1][1].sale_price, 2e7 * Math.pow(0.99, 10));  // 売却価格は年率で複利: −1%/年で10年
+  // 売却する年ごとの推移: 表の年数では表と同じ総収支、総収支 = 保有中の収支 + 売却代金の手取り
+  const tr = r.trend[3];
+  assert.equal(tr.total.length, 50);
+  r.hold_years.forEach((h, i) => close(tr.total[h - 1], r.grid[i][3].total, 1e-6));
+  close(tr.holding[9] + tr.sale_net[9], tr.total[9]); close(tr.sale_net[9], 2000e4 - 72.6e4 - 900e4);
+  // −7%/年で5年(約3割安)だと売却代金が残債に届かず、最後まで支出だけ
+  assert.equal(routes.cashflow({ ...q, price_change_pct: -5 }).grid[0][0].irr, null);
   close(routes.cashflow({ ...q, brokerage: true }).initial.costs, 103.6e4 + 72.6e4);
   assert.equal(routes.cashflow({ ...q, down_pct: 100 }).yearly.principal[0], 0);
   assert.throws(() => routes.cashflow({ ...q, running: { ...q.running, management: -1 } }), /management/);
+  // 1棟: 家賃と入れ替えのコストは1戸あたりの額 × 戸数。入れ替え1回あたりの費用は1戸ぶんのまま
+  const b = routes.cashflow({ ...q, units: 8 });
+  close(b.yearly.rent[0], 8 * 96e4); close(b.yearly.turnover[0], 8 * 11.65e4); close(b.turnover.per_turnover, 46.6e4); close(b.turnover.year, 8 * 11.65e4);
+  close(b.running.items.rental_mgmt_pct, 8 * 4000);
+  assert.throws(() => routes.cashflow({ ...q, units: 0 }), /戸数/);
 });
 
-test('cashflow: 金利上昇・家賃下落・修繕積立金の上昇', () => {
-  const q = { price: 2e7, rent_month: 1e5, rate: 1, years: 20, down_pct: 0, brokerage: false, sale_brokerage: false,
+test('cashflow: 家賃の変動率と、リスク(金利上昇・修繕積立金と管理費の値上げ)', () => {
+  const q = { price: 2e7, rent_month: 1e5, units: 1, rent_change_pct: -10, price_change_pct: 0, rate: 1, years: 20, down_pct: 0, brokerage: false, sale_brokerage: false,
     purchase: { loan_fee_pct: 0, scrivener: 0, registration_pct: 0, stamp: 0, acquisition_tax_pct: 0, fire_insurance: 0, settlement: 0 },
-    running: { management: 0, repair_reserve: 1e4, rental_mgmt_pct: 10, property_tax: 0, equipment: 0, insurance: 0, accountant: 0 },
+    running: { management: 5000, repair_reserve: 1e4, rental_mgmt_pct: 10, property_tax: 0, equipment: 0, insurance: 0, earthquake_insurance: 0, accountant: 0 },
     turnover: { interval_years: 1, restoration: 0, move_out: 0, key: 0, utilities_month: 0, ad_months: 1, agent_months: 0, free_rent_months: 0, vacancy_months: 0 },
-    risk: { rate_rise_pct: 0.5, rate_rise_years: 2, rent_decline_pct: 10, repair_rise_pct: 20 } };
+    risk: { rate_rise_pct: 0.5, rate_rise_years: 2, repair_rise_pct: 20, management_rise_pct: 10 } };
   const Y = routes.cashflow(q).yearly;
   assert.deepEqual(Y.rate.slice(0, 4), [1, 1.5, 2, 2]);  // 2年目まで上がって止まる
-  close(Y.rent[1], 0.9e5 * 12); close(Y.rental_mgmt[1], 0.9e4 * 12); close(Y.turnover[1], 0.9e5); close(Y.repair[1], 1.2e4 * 12);
+  close(Y.rent[1], 0.9e5 * 12); close(Y.rental_mgmt[1], 0.9e4 * 12); close(Y.turnover[1], 0.9e5); close(Y.repair[1], 1.2e4 * 12); close(Y.management[2], 5000 * 1.21 * 12);
   // 2年目の返済額は1年目末の残高・残り19年・金利1.5%で計算し直す
   const bal1 = Y.balance[0], q2 = 0.015 / 12, pay2 = bal1 * q2 / (1 - Math.pow(1 + q2, -228));
   close(Y.principal[1] + Y.interest[1], pay2 * 12, 1e-6);
   close(Y.balance[19], 0, 1e-6);
   const g = routes.cashflow(q).grid[1][3];
   assert.ok(g.total < g.total_base);
-  assert.throws(() => routes.cashflow({ ...q, risk: { ...q.risk, rent_decline_pct: 100 } }), /家賃の下落率/);
+  close(routes.cashflow(q).trend[3].total_base[9], g.total_base, 1e-6);
+  close(routes.cashflow(q).yearly_base.rent[1], 0.9e5 * 12);  // 家賃の変動率はリスクではないので、リスクなしの計算にも入る
+  assert.throws(() => routes.cashflow({ ...q, rent_change_pct: -100 }), /家賃の変動率/);
+  assert.throws(() => routes.cashflow({ ...q, price_change_pct: -98 }), /物件価格の変動率/);
   const o = routes.cashflow({ ...q, risk: { rate_override_pct: 4 } }).yearly;  // 全期間4%: 入力の金利(1%)の代わりに使う
   assert.ok(o.rate.slice(0, 20).every(v => v === 4));
   close(o.principal[0] + o.interest[0], 2e7 * (0.04 / 12) / (1 - Math.pow(1 + 0.04 / 12, -240)) * 12, 1e-6);
 });
 
 test('cashflow: 税金(減価償却・損益通算・譲渡所得税)', () => {
-  const q = { price: 2e7, rent_month: 1e5, rate: 1, years: 20, down_pct: 0, brokerage: false, sale_brokerage: false,
+  const q = { price: 2e7, rent_month: 1e5, units: 1, rent_change_pct: 0, price_change_pct: 0, rate: 1, years: 20, down_pct: 0, brokerage: false, sale_brokerage: false,
     purchase: { loan_fee_pct: 0, scrivener: 0, registration_pct: 0, stamp: 0, acquisition_tax_pct: 0, fire_insurance: 0, settlement: 0 },
-    running: { management: 0, repair_reserve: 1e4, rental_mgmt_pct: 10, property_tax: 0, equipment: 0, insurance: 0, accountant: 0 },
+    running: { management: 0, repair_reserve: 1e4, rental_mgmt_pct: 10, property_tax: 0, equipment: 0, insurance: 0, earthquake_insurance: 0, accountant: 0 },
     turnover: { interval_years: 1, restoration: 0, move_out: 0, key: 0, utilities_month: 0, ad_months: 1, agent_months: 0, free_rent_months: 0, vacancy_months: 0 } };
   const tax = { rate_pct: 30, building_ratio_pct: 50, building_age: 20, legal_life: 47, equipment_ratio_pct: 0 };
   const n = routes.cashflow(q), r = routes.cashflow({ ...q, tax });
@@ -256,7 +271,7 @@ test('cashflow: 税金(減価償却・損益通算・譲渡所得税)', () => {
   close(Y.taxable[0], inc); close(Y.income_tax[0], inc * 0.3); close(Y.cf[0], n.yearly.cf[0] - inc * 0.3);
   // 売却: 譲渡所得 = 売却価格 − (取得費 − 償却累計)。10年(長期)は20.315%、5年(短期)は39.63%
   close(r.grid[1][3].sale_tax, 10 * dep * 0.20315); close(r.grid[0][3].sale_tax, 5 * dep * 0.3963);
-  assert.equal(r.grid[0][0].sale_tax, 0);  // 3割安なら譲渡損で税金なし
+  assert.equal(r.grid[0][0].sale_tax, 0);  // −2%/年で5年なら譲渡損で税金なし
   // 赤字: 土地の取得に充てた借入金(借入2000万 − 建物1000万 = 半分)の利子は損益通算できない
   const low = routes.cashflow({ ...q, rent_month: 3e4, tax }).yearly;
   const raw = 36e4 - 12e4 - 3.6e4 - 3e4 - low.interest[0] - dep;
@@ -363,6 +378,19 @@ test('long: 基準年=100 にそろえ、実質は物価で割る。基準年に
   assert.equal(cmp.rows[1].line, null); assert.equal(cmp.rows[1].rent, null);
   await assert.rejects(routes.long({ city: 'Z市' }), /都市が不正/);
   await assert.rejects(routes.long({ city: 'X市', base: 1900 }), /基準年が不正/);
+});
+
+test('long-yield: 標準的なワンルームの表面利回り。家賃は家賃指数で延ばし、回帰より前は地価でさかのぼる', async () => {
+  const r = await routes['long-yield']({ city: 'X市' });
+  assert.deepEqual(r.years, [2015, 2016, 2017, 2018, 2019, 2020]);
+  close(r.rent[1] / r.rent[0], 120 / 110);  // 家賃は家賃指数(毎年 +10)どおりに変わる
+  r.years.forEach((_, i) => assert.ok(r.gross[i] > 0 && r.gross[i] < 1));
+  // 地価は2015年から: さかのぼりは起点の2015年だけで、回帰の値と一致する
+  assert.deepEqual(r.back.years, [2015]); close(r.back.land[0], r.gross[0]); close(r.back.half[0], r.gross[0]);
+  assert.deepEqual(r.rates.float_store, { years: [2020], values: [2.5] }); assert.deepEqual(r.rates.jgb10, { years: [], values: [] });
+  assert.deepEqual(r.rates.chintai_35, { years: [2020, 2021], values: [2, 2] });  // 賃貸住宅融資は12か月そろわない年も、ある月で平均
+  await assert.rejects(routes['long-yield']({ city: 'Y市' }), /家賃指数/);
+  await assert.rejects(routes['long-yield']({ city: 'Z市' }), /都市が不正/);
 });
 
 test('long-rates: 変動の店頭の目安は短プラ+1%、物価上昇率は前年比', async () => {

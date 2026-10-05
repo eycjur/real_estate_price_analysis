@@ -97,6 +97,10 @@ a { color: var(--accent); }
 .pos { color: var(--s3); }
 .neg { color: var(--hl-text); }
 #mode-sim td input[type=number] { width: 80px; }
+#sim_equip td input[type=number] { width: 56px; }
+.sim-costs { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 10px 0 14px; }
+@media (max-width: 760px) { .sim-costs { grid-template-columns: 1fr; } }
+#mode-sim td input[type=number]:disabled { color: var(--muted); background: transparent; cursor: not-allowed; }
 #sim_grid td { vertical-align: top; cursor: pointer; }
 #sim_grid td.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
 #sim_grid td .n { font-size: 11.5px; color: var(--muted); font-weight: 400; }
@@ -489,12 +493,14 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
   </div>
   <div id="mode-sim" hidden>
   <section class="panel">
-    <h2>物件とローン <span class="note">— 区分マンション1戸を買って貸し、何年後かに売る場合の収支。物件資料にある家賃・管理費・修繕積立金を入れます</span></h2>
+    <h2>物件とローン <span class="note" id="sim_lead">— 区分マンション1戸を買って貸し、何年後かに売る場合の収支。物件資料にある家賃・管理費・修繕積立金を入れます</span></h2>
     <div class="filters">
+      <label class="f">物件の種類<select id="s_type"><option value="unit">区分マンション</option><option value="bldg">1棟(アパート・マンション)</option></select></label>
       <label class="f">物件価格(万円)<input type="number" id="s_price" value="2700" min="1" step="50" style="width:100px"></label>
-      <label class="f">家賃(円/月)<input type="number" id="s_rent" value="87000" min="0" step="1000" style="width:100px"></label>
-      <label class="f">管理費(円/月)<input type="number" data-g="running" data-k="management" value="7000" min="0" step="500" style="width:90px"></label>
-      <label class="f">修繕積立金(円/月)<input type="number" data-g="running" data-k="repair_reserve" value="8000" min="0" step="500" style="width:90px"></label>
+      <label class="f" id="s_units_wrap" hidden>戸数<input type="number" id="s_units" value="8" min="1" step="1" style="width:70px"></label>
+      <label class="f"><span data-l="rent">家賃(円/月)</span><input type="number" id="s_rent" value="87000" min="0" step="1000" style="width:100px"></label>
+      <label class="f"><span data-l="management_in">管理費(円/月)</span><input type="number" data-g="running" data-k="management" value="7000" min="0" step="500" style="width:90px"></label>
+      <label class="f" id="s_repair_wrap">修繕積立金(円/月)<input type="number" data-g="running" data-k="repair_reserve" value="8000" min="0" step="500" style="width:90px"></label>
       <label class="f">賃貸管理手数料(家賃の%)<input type="number" data-g="running" data-k="rental_mgmt_pct" value="4" min="0" max="100" step="0.5"></label>
     </div>
     <div class="filters" style="margin-top:10px">
@@ -505,15 +511,17 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
       <label class="f">売却時の仲介手数料<select id="s_sale_brokerage"><option value="1">あり(3.3%+6.6万円)</option><option value="0">なし</option></select></label>
     </div>
     <div class="filters" style="margin-top:10px">
+      <label class="f">家賃変動率(年%)<input type="number" id="s_rent_change" value="-0.5" step="0.1"></label>
+      <label class="f">物件価格変動率(年%)<input type="number" id="s_price_change" value="-0.5" step="0.1"></label>
       <label class="f">リスク<select id="s_risk">
-        <option value="{}">なし(家賃・費用・金利が一定)</option>
+        <option value="{}">なし(費用・金利が一定)</option>
         <option value='{"rate_rise_pct":0.1,"rate_rise_years":10}'>金利上昇: 10年で+1%(+0.1%/年)</option>
         <option value='{"rate_rise_pct":0.2,"rate_rise_years":10}'>金利上昇: 10年で+2%(+0.2%/年)</option>
         <option value='{"rate_override_pct":4}'>金利: 最初から全期間4%</option>
-        <option value='{"rent_decline_pct":0.5}'>家賃下落: −0.5%/年(20年で約−10%)</option>
-        <option value='{"rent_decline_pct":1}'>家賃下落: −1%/年(20年で約−18%)</option>
-        <option value='{"repair_rise_pct":2}'>修繕積立金の上昇: +2%/年(20年で約1.5倍)</option>
-        <option value='{"rate_rise_pct":0.2,"rate_rise_years":10,"rent_decline_pct":1,"repair_rise_pct":2}'>すべて: 金利10年で+2%・家賃−1%/年・修繕積立金+2%/年</option>
+        <option value='{"repair_rise_pct":2}'>修繕積立金の値上げ(区分のみ): +2%/年(20年で約1.5倍)</option>
+        <option value='{"management_rise_pct":1}'>管理費(1棟は共用部の維持費)の値上げ: +1%/年(20年で約1.2倍)</option>
+        <option value='{"repair_rise_pct":2,"management_rise_pct":1}'>修繕積立金・管理費の値上げ: +2%/年・+1%/年</option>
+        <option value='{"rate_rise_pct":0.2,"rate_rise_years":10,"repair_rise_pct":2,"management_rise_pct":1}'>すべて: 金利10年で+2%・修繕積立金+2%/年・管理費+1%/年</option>
       </select></label>
       <label class="f">税金(所得税・住民税、節税効果)<select id="s_tax">
         <option value="">含めない</option>
@@ -535,13 +543,20 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
     <p class="note">リスクを選ぶと、下の表と総収支にリスクなしの場合との差も表示します。税率は所得税と住民税の合計で、給与など他の所得を合わせた課税所得の区分で選びます。</p>
     <p id="sim_status" class="note"></p>
   </section>
-  <div class="grid3" style="align-items:start">
-    <div class="panel"><h2>イニシャルコスト(購入時の自己資金)</h2><div class="bigv" id="sim_initial"></div><div class="note" id="sim_initial_n"></div>
-      <details><summary>内訳</summary><div class="tblwrap"><table id="sim_purchase"></table></div></details></div>
-    <div class="panel"><h2>ランニングコスト(月)</h2><div class="bigv" id="sim_running"></div><div class="note" id="sim_running_n"></div>
-      <details><summary>内訳</summary><div class="tblwrap"><table id="sim_run"></table></div></details></div>
-    <div class="panel"><h2>入居者の入れ替え・空室のコスト(年平均)</h2><div class="bigv" id="sim_risk"></div><div class="note" id="sim_risk_n"></div>
-      <details><summary>内訳</summary><div class="tblwrap"><table id="sim_turnover"></table></div></details></div>
+  <div class="grid2 sim-costs">
+    <!-- 列ごとに縦に積む: ランニングコストの内訳を開いても左の列のカードは動かない -->
+    <div>
+      <div class="panel"><h2>イニシャルコスト(購入時の自己資金)</h2><div class="bigv" id="sim_initial"></div><div class="note" id="sim_initial_n"></div>
+        <details><summary>内訳</summary><div class="tblwrap"><table id="sim_purchase"></table></div></details></div>
+      <div class="panel"><h2>入居者の入れ替え・空室のコスト(年平均)</h2><div class="bigv" id="sim_risk"></div><div class="note" id="sim_risk_n"></div>
+        <details><summary>内訳</summary><div class="tblwrap"><table id="sim_turnover"></table></div></details></div>
+    </div>
+    <div>
+      <div class="panel"><h2>ランニングコスト(月)</h2><div class="bigv" id="sim_running"></div><div class="note" id="sim_running_n"></div>
+        <details><summary>内訳</summary><div class="tblwrap"><table id="sim_run"></table></div>
+          <details><summary>設備交換・修繕費の計算</summary><div class="tblwrap"><table id="sim_equip"></table></div>
+            <div class="note" id="sim_equip_n">専有部の設備を寿命ごとに交換する費用(工事費込みの目安)を年あたりにならした額。設備がない・賃借人負担の項目は0にします</div></details></details></div>
+    </div>
     <div class="panel" id="sim_tax_card" style="grid-column:1/-1" hidden>
       <div class="filters" style="align-items:center;gap:10px"><h2 style="margin:0">節税効果(年)</h2>
         <label class="f" style="flex-direction:row;align-items:center;gap:6px"><input type="number" id="s_tax_year" value="2" min="1" max="50" style="width:64px">年目</label></div><div class="bigv" id="sim_tax"></div><div class="note" id="sim_tax_n"></div>
@@ -558,13 +573,16 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
     </div>
   </div>
   <div class="panel">
-    <h2>売却したときの総収支と年利回り <span class="note">— 上段: 総収支(購入から売却までの手元のお金の増減)、中段: 自己資金に対する年利回り(IRR)、下段: リスクによる差。セルをクリックすると下のグラフに内訳を表示</span></h2>
+    <h2>売却したときの総収支と年利回り <span class="note">— 上段: 総収支(購入から売却までの手元のお金の増減)、中段: 自己資金に対する年利回り(IRR)と売却価格、下段: リスクによる差。列は物件価格の年あたりの変動率で、入力値の前後も並べます。セルをクリックすると下のグラフに内訳を表示</span></h2>
     <div class="tblwrap"><table id="sim_grid"></table></div>
   </div>
   <div class="panel">
     <h2 id="sim_total_title">総収支の内訳</h2>
     <div class="bigv" id="sim_total"></div><div class="note" id="sim_total_n"></div>
-    <div id="chart_sim_total" class="chart"></div>
+    <div class="grid2">
+      <div><h3 class="ch">収入と支出の内訳</h3><div id="chart_sim_total" class="chart sm"></div></div>
+      <div><h3 class="ch">売却する年ごとの推移 <span class="note">— 表で選んだ列の物件価格の変動率で、各年に売った場合</span></h3><div id="chart_sim_total_trend" class="chart sm"></div></div>
+    </div>
   </div>
   <div class="panel">
     <h2>計算方法と注意</h2>
@@ -572,8 +590,8 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
       <li>イニシャルコスト = 頭金 + 諸費用(仲介手数料・ローン事務手数料・登記・税・保険・精算金)。借入額 = 物件価格 − 頭金。諸費用は現金で払う前提です。</li>
       <li>ローンは元利均等。金利の上昇を入れると変動金利として毎年見直し、その時点の残高・残り期間で返済額を計算し直します(実際の商品にある「返済額は5年間据え置き・見直し時も1.25倍まで」のルールは考えていません)。</li>
       <li>毎月の収支 = 家賃 − ランニングコスト − 入れ替えのコスト(年平均の12分の1) − ローン返済(利息+元金)。元金の返済は支出ですが、ローン残高が減るぶん売却時の手取りが増えます。</li>
-      <li>入れ替えのコストは、1回あたりの費用(原状回復などの定額 + 広告料・仲介・フリーレント・空室期間の家賃)を、入れ替えの頻度で割って毎年ならしています。家賃が下がると、賃貸管理手数料と家賃何か月分の費用も下がります。</li>
-      <li>総収支 = −イニシャルコスト + 保有中の毎年の収支の累計 + (売却価格 − 売却時の仲介手数料 − ローン残高)。年利回りは、購入時の自己資金と毎年の収支・売却代金を年単位のキャッシュフローとみた内部収益率です。売却代金で残債を返しきれず、最後まで支出しかない場合などは求まらないため「—」になります。</li>
+      <li>入れ替えのコストは、1回あたりの費用(原状回復などの定額 + 広告料・仲介・フリーレント・空室期間の家賃)を、入れ替えの頻度で割って毎年ならしています。家賃は毎年、入力した家賃変動率で変わります。家賃が下がると、賃貸管理手数料と家賃何か月分の費用も下がります。</li>
+      <li>売却価格 = 物件価格 × (1 + 物件価格変動率)^保有年数。<br>総収支 = −イニシャルコスト + 保有中の毎年の収支の累計 + (売却価格 − 売却時の仲介手数料 − ローン残高)。年利回りは、購入時の自己資金と毎年の収支・売却代金を年単位のキャッシュフローとみた内部収益率です。売却代金で残債を返しきれず、最後まで支出しかない場合などは求まらないため「—」になります。</li>
       <li>税金を含めると、毎年の不動産所得(家賃 − 経費 − 減価償却)に税率を掛けた所得税・住民税を差し引きます。赤字なら給与などの所得と相殺して戻る税金を「節税」として足します(他の所得が十分あり、同じ税率がかかる前提)。経費はローン元金以外の支出で、1年目は購入時の諸費用(仲介手数料を除く)も経費にします。赤字のとき、土地の取得に充てた借入金の利子は相殺できません(借入金はまず建物に充てたとみなします)。</li>
       <li>減価償却は建物部分(取得費 × 建物の割合)の定額法で、耐用年数は選んだ構造の法定耐用年数(RC・SRC 47年、重量鉄骨 34年、木造 22年など)をもとにした中古の簡便法((法定 − 築年数) + 築年数 × 20%、法定耐用年数を過ぎていれば法定の20%)。建物のうち設備(電気・給排水・ガス設備など)の割合を選ぶと、その部分は設備の法定耐用年数15年をもとにした簡便法で償却します(築15年以上なら3年)。償却の総額は同じで、前倒しになるぶん早い時期の税金が減ります。区分マンションの契約書には設備の内訳がないことが多く、実際の申告では割合に合理的な根拠が必要です。</li>
       <li>売却時は、譲渡所得 = 売却価格 − 仲介手数料 − (取得費 − 減価償却の累計) に、保有5年超は20.315%、5年以下は39.63%を掛けた譲渡所得税を引きます。減価償却で毎年の税金が減ったぶん、売却時の譲渡所得が大きくなります。所有期間は実際には売却した年の1月1日時点で判定するため、6年目に売っても短期になることがあります。</li>
@@ -655,6 +673,11 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
       <p class="note">買うか借りるかの目安。地価と家賃の指数の比なので水準(利回り)ではなく、基準年からの変化だけを表します。物価で割っても同じ値です。</p></div>
     <div class="panel"><h2>円で見た水準の目安(名目) <span class="note" id="lt_yen_sub"></span></h2><div id="chart_lt_yen" class="chart sm"></div>
       <p class="note" id="lt_yen_note"></p></div>
+  </div>
+  <div class="panel">
+    <h2 id="lt_yield_title">表面利回りの推計(標準的なワンルーム)</h2>
+    <div id="chart_lt_yield" class="chart"></div>
+    <p class="note" id="lt_yield_note"></p>
   </div>
   <div class="panel">
     <h2>都市の比較</h2>
@@ -1429,16 +1452,34 @@ async function renderRepayment() {
     yaxis2: { overlaying: 'y', side: 'right', showgrid: false, tickformat: ',', title: { text: '残高(万円)' }, rangemode: 'tozero' }, legend: { y: 1.15 }, margin: { t: 30, r: 60 } }), CFG);
 }
 
-// 収支シミュレーション。内訳の項目: [キー, 名前, 初期値, 単位, on/off切替]。man=万円(円に直して送る)、yen=円/月、pct=%、mon=家賃の何か月分、yr=年に1回
+// 収支シミュレーション。内訳の項目: [キー, 名前, 初期値, 単位, on/off切替(true: 初期はオフ、'on': 初期はオン)]。man=万円(円に直して送る)、yen=円/月、pct=%、mon=家賃の何か月分、yr=年に1回
 // 家賃・管理費・修繕積立金・賃貸管理手数料は物件ごとに違うので上の入力欄に置き、内訳では金額だけ表示する
 let SIM;
 const SIM_ITEMS = {
   purchase: [['loan_fee_pct', 'ローン事務手数料・保証料(借入額の%)', 2.2, 'pct'], ['scrivener', '司法書士費用', 15, 'man'], ['registration_pct', '登録免許税(物件価格の%)', 1.2, 'pct'],
     ['stamp', '印紙税', 3, 'man'], ['acquisition_tax_pct', '不動産取得税(物件価格の%)', 0.7, 'pct'], ['fire_insurance', '火災保険(一括)', 3, 'man'], ['settlement', '精算金(固定資産税・管理費など)', 5, 'man']],
-  running: [['property_tax', '固定資産税・都市計画税', 5000, 'yen'], ['equipment', '設備交換・修繕費', 3000, 'yen'], ['insurance', '火災・地震保険', 1000, 'yen'], ['accountant', '税理士費用', 0, 'yen']],
-  turnover: [['interval_years', '入れ替えの頻度', 4, 'yr'], ['restoration', '原状回復・クロス・ハウスクリーニング', 10, 'man', true], ['move_out', '退去立会い・精算手数料', 2, 'man'], ['key', '鍵交換', 2, 'man', true],
-    ['utilities_month', '空室中の光熱費(円/月)', 3000, 'yen'], ['ad_months', '入居募集の広告料', 1, 'mon'], ['agent_months', '入居者の仲介手数料(オーナー負担分)', 0, 'mon'], ['free_rent_months', 'フリーレント', 0.5, 'mon'], ['vacancy_months', '空室期間(家賃が入らない)', 2, 'mon']],
+  running: [['property_tax', '固定資産税・都市計画税', 5000, 'yen'], ['insurance', '火災保険', 500, 'yen'], ['earthquake_insurance', '地震保険', 500, 'yen', true], ['accountant', '税理士費用', 0, 'yen']],
+  turnover: [['interval_years', '入れ替えの頻度', 4, 'yr'], ['restoration', '原状回復・クロス・ハウスクリーニング', 10, 'man', 'on'], ['move_out', '退去立会い・精算手数料', 2, 'man'], ['key', '鍵交換', 2, 'man', true],
+    ['utilities_month', '空室中の光熱費(円/月)', 3000, 'yen'], ['ad_months', '入居募集の広告料', 1, 'mon'], ['agent_months', '入居者の仲介手数料(オーナー負担分)', 1, 'mon', true], ['free_rent_months', 'フリーレント', 0.5, 'mon'], ['vacancy_months', '空室期間(家賃が入らない)', 2, 'mon']],
 };
+// 設備交換・修繕費の内訳: [キー, 名前, 交換の間隔(年), 1回の費用(万円)]。ワンルーム〜1LDKの区分を想定した目安
+const SIM_EQUIP = [['water_heater', '給湯器', 15, 20], ['aircon', 'エアコン', 12, 10], ['stove', 'コンロ(ガス・IH)', 15, 6], ['fan', '換気扇・浴室換気扇', 15, 4],
+  ['toilet_seat', '温水洗浄便座', 10, 5], ['faucet', '水栓(キッチン・洗面・浴室)', 15, 6], ['intercom', 'インターホン', 15, 4],
+  ['unit_bath', 'ユニットバス', 30, 80], ['kitchen', 'キッチン(ミニキッチン〜小型)', 25, 40], ['toilet', 'トイレ本体', 25, 20], ['vanity', '洗面化粧台', 20, 15], ['minor', '小修繕(水漏れ・建具・照明など)', 1, 1]];
+// 1棟のときだけ足す建物全体の修繕: [キー, 名前, 間隔(年), 1回の費用(万円)]。木造・軽量鉄骨の8戸程度のアパートを想定した目安
+const SIM_BLDG_REPAIR = [['exterior', '外壁塗装・シーリング', 15, 250], ['roof', '屋根・屋上防水', 15, 120], ['steel', '鉄部塗装(階段・廊下)', 8, 40],
+  ['corridor', '共用廊下・階段の床', 15, 40], ['pipes', '給排水管・給水ポンプ', 30, 150], ['common_eq', '共用部の照明・インターホン・防犯カメラ', 15, 30],
+  ['elevator', 'エレベーター改修(RCでエレベーターがあれば800〜1,200万円)', 25, 0]];
+// 物件の種類を切り替えたときに入れ直す初期値(id または data-k)。東京23区の取引の中央値付近(区分: 20〜30㎡・築15〜25年、1棟: 木造・鉄骨アパート築15〜30年)
+const SIM_TYPE_DEFAULTS = {
+  unit: { s_price: 2700, s_rent: 87000, management: 7000, property_tax: 5000, insurance: 500, earthquake_insurance: 500, settlement: 5 },
+  bldg: { s_price: 12000, s_rent: 65000, s_units: 8, management: 25000, property_tax: 40000, insurance: 6000, earthquake_insurance: 5000, settlement: 20 },
+};
+// 種類ごとの表示名。1棟では管理費の枠に共用部の維持費(清掃・共用部の電気水道・法定点検・エレベーター保守など)を入れる
+const simBldg = () => $('s_type').value === 'bldg';
+const simLabels = () => simBldg()
+  ? { rent: '1戸の家賃(円/月)', management_in: '共用部の維持費(円/月)', management: '共用部の維持費', repair: '修繕積立金', equipment: '設備交換・大規模修繕(下の計算の年平均)' }
+  : { rent: '家賃(円/月)', management_in: '管理費(円/月)', management: '管理費', repair: '修繕積立金', equipment: '設備交換・修繕費(下の計算の年平均)' };
 const SIM_UNIT = { man: '万円', yen: '円/月', pct: '%', mon: 'か月分', yr: '年に1回' };
 const manS = v => (v >= 0 ? '+' : '−') + Math.round(Math.abs(v) / 1e4).toLocaleString() + '万円';
 const man1 = v => (v / 1e4).toLocaleString(undefined, { maximumFractionDigits: 1 }) + '万円';
@@ -1447,11 +1488,23 @@ const simRow = (label, out, input = '') => `<tr><td style="white-space:normal">$
 function initSim() {
   SIM = true;
   // on/off切替のある項目は、チェックを外すと 0 円として計算する
-  const inp = (g, [k, , v, u, sw]) => (sw ? `<input type="checkbox" data-sw="${g}.${k}"> ` : '')
-    + `<input type="number" data-g="${g}" data-k="${k}" data-u="${u}" value="${v}" min="0" step="${u === 'yen' ? 500 : u === 'man' ? 1 : 0.1}"> ${SIM_UNIT[u].replace('円/月', '円')}`;
+  const inp = (g, [k, , v, u, sw]) => (sw ? `<input type="checkbox" data-sw="${g}.${k}"${sw === 'on' ? ' checked' : ''}> ` : '')
+    + `<input type="number" data-g="${g}" data-k="${k}" data-u="${u}" value="${v}" min="0" step="${u === 'yen' ? 500 : u === 'man' ? 1 : 0.1}"${sw === true ? ' disabled' : ''}> ${SIM_UNIT[u].replace('円/月', '円')}`;
   const rows = g => SIM_ITEMS[g].map(it => simRow(it[1], g + '.' + it[0], inp(g, it))).join('');
   $('sim_purchase').innerHTML = simRow('頭金', 'purchase.down') + simRow('仲介手数料(上の入力欄で選択)', 'purchase.brokerage') + rows('purchase') + simRow('諸費用の合計(頭金を除く)', 'purchase.costs').replace('<tr>', '<tr class="total">');
-  $('sim_run').innerHTML = simRow('管理費', 'running.management') + simRow('修繕積立金', 'running.repair_reserve') + simRow('賃貸管理手数料', 'running.rental_mgmt_pct') + rows('running');
+  $('sim_run').innerHTML = simRow('<span data-l="management">管理費</span>', 'running.management') + simRow('修繕積立金', 'running.repair_reserve').replace('<tr>', '<tr data-only="unit">')
+    + simRow('賃貸管理手数料', 'running.rental_mgmt_pct') + simRow('<span data-l="equipment"></span>', 'running.equipment') + rows('running');
+  // 設備の表。1棟では専有部の行は1戸あたり(× 戸数)で、建物全体の修繕の行を足す
+  const eqRow = ([k, name, n, x]) => simRow(name, 'equip.' + k,
+    `<input type="number" data-eq="${k}" data-n value="${n}" min="1" step="1"> 年</td><td><input type="number" data-eq="${k}" data-x value="${x}" min="0" step="1"> 万円`);
+  const head = t => `<tr data-only="bldg"><th colspan="4" style="text-align:left">${t}</th></tr>`;
+  $('sim_equip').innerHTML = '<tr><th>設備</th><th>間隔</th><th>金額</th><th>月あたり</th></tr>' + head('専有部(1戸あたり。合計は × 戸数)') + SIM_EQUIP.map(eqRow).join('')
+    + head('建物全体') + SIM_BLDG_REPAIR.map(it => eqRow(it).replace('<tr>', '<tr data-only="bldg">')).join('')
+    + simRow('合計', 'equip.total').replace('<tr>', '<tr class="total">').replace('<td></td><td data-o', '<td></td><td></td><td data-o');
+  $('s_type').addEventListener('change', () => {
+    // 種類ごとの初期値を入れ直す(このあと #mode-sim の change で再計算される)
+    for (const [k, v] of Object.entries(SIM_TYPE_DEFAULTS[$('s_type').value])) ($(k) ?? document.querySelector(`#mode-sim [data-k="${k}"]`)).value = v;
+  });
   $('sim_turnover').innerHTML = rows('turnover') + simRow('1回あたりの合計', 'turnover.per').replace('<tr>', '<tr class="total">');
   $('mode-sim').addEventListener('change', renderSim);
   $('sim_tax_details').addEventListener('toggle', () => { if ($('sim_tax_details').open) Plotly.Plots.resize('chart_sim_tax'); });
@@ -1462,7 +1515,8 @@ function initSim() {
   renderSim();
 }
 function simParams() {
-  const q = { price: +$('s_price').value * 1e4, rent_month: +$('s_rent').value, rate: +$('s_rate').value, years: +$('s_years').value, down_pct: +$('s_down_pct').value,
+  simApplyType();
+  const q = { price: +$('s_price').value * 1e4, rent_month: +$('s_rent').value, units: simBldg() ? +$('s_units').value : 1, rent_change_pct: +$('s_rent_change').value, price_change_pct: +$('s_price_change').value, rate: +$('s_rate').value, years: +$('s_years').value, down_pct: +$('s_down_pct').value,
     brokerage: $('s_brokerage').value === '1', sale_brokerage: $('s_sale_brokerage').value === '1', purchase: {}, running: {}, turnover: {}, risk: {} };
   q.risk = JSON.parse($('s_risk').value);
   const tax = $('s_tax').value;
@@ -1473,8 +1527,31 @@ function simParams() {
     if (sw) e.disabled = !sw.checked;
     q[e.dataset.g][e.dataset.k] = e.disabled ? 0 : +e.value * (e.dataset.u === 'man' ? 1e4 : 1);
   }
+  q.running.equipment = simEquipTotal();
   return q;
 }
+// 物件の種類に合わせて、入力欄・表の行の表示と表示名を切り替える。1棟では修繕積立金を0円にする
+function simApplyType() {
+  const b = simBldg(), L = simLabels();
+  $('s_units_wrap').hidden = !b; $('s_repair_wrap').hidden = b;
+  document.querySelector('#mode-sim [data-k="repair_reserve"]').disabled = b;
+  for (const e of document.querySelectorAll('#mode-sim [data-only]')) e.hidden = e.dataset.only !== (b ? 'bldg' : 'unit');
+  for (const e of document.querySelectorAll('#mode-sim [data-l]')) e.textContent = L[e.dataset.l];
+  $('sim_lead').textContent = b ? '— アパート・マンションを1棟買って貸し、何年後かに売る場合の収支。家賃は1戸あたりで、空室や入れ替えのコストも1戸あたりの額 × 戸数で計算します'
+    : '— 区分マンション1戸を買って貸し、何年後かに売る場合の収支。物件資料にある家賃・管理費・修繕積立金を入れます';
+  $('sim_equip_n').textContent = b ? '専有部の設備(1戸あたり × 戸数)と、外壁・屋上などの大規模修繕を、寿命ごとに交換・修繕する費用(工事費込みの目安)を年あたりにならした額。該当しない項目は0にします'
+    : '専有部の設備を寿命ごとに交換する費用(工事費込みの目安)を年あたりにならした額。設備がない・賃借人負担の項目は0にします';
+}
+// 設備ごとの月あたりの交換費用(円) = 1回の費用 ÷ 交換の間隔 ÷ 12。専有部の設備は1戸あたり、1棟では建物全体の修繕も含む
+const simEquip = () => Object.fromEntries([...SIM_EQUIP, ...(simBldg() ? SIM_BLDG_REPAIR : [])].map(([k]) => {
+  const n = +document.querySelector(`#sim_equip [data-eq="${k}"][data-n]`).value, x = +document.querySelector(`#sim_equip [data-eq="${k}"][data-x]`).value;
+  return [k, x * 1e4 / n / 12];
+}));
+// 合計 = 専有部の設備 × 戸数 + 建物全体の修繕
+const simEquipTotal = () => {
+  const e = simEquip(), units = simBldg() ? +$('s_units').value : 1;
+  return SIM_EQUIP.reduce((s, [k]) => s + e[k] * units, 0) + (simBldg() ? SIM_BLDG_REPAIR.reduce((s, [k]) => s + e[k], 0) : 0);
+};
 // 収入・支出の積み上げ棒グラフ。各項目は [名前, 金額, 色]。3本目の棒は手残り(収入 − 支出)
 const SIM_COLOR = { rent: '#1baf7a', sale: '#7fd1ae', down: '#8a5cc2', costs: '#b79ad9', management: '#2a78d6', repair: '#7fa8dd', rental_mgmt: '#4fb3c8', other: '#a3c9d6',
   turnover: '#f0a27e', interest: '#eb6834', principal: '#c8451a', balance: '#8f2f0f', sale_cost: '#d6b04c', tax: '#8a887f', saving: '#a3e0c4', sale_tax: '#5c5b55' };
@@ -1493,7 +1570,9 @@ function simBars(id, income, expense, unit, div) {
     annotations: [label('収入', total(income), fmt(total(income))), label('支出', total(expense), fmt(total(expense))), label('手残り', net, (net >= 0 ? '+' : '−') + fmt(Math.abs(net)))],
     legend: { orientation: 'v', x: 1.02, y: 1, traceorder: 'normal' }, margin: { t: 24, r: 10 } }), CFG);
 }
-let SIM_R, SIM_SEL = [1, 3];  // 表で選んだセル(初期は10年後に購入価格で売却)
+const SIM_BASE_COL = 3;  // 表の列のうち、入力した物件価格変動率そのものの列(service.js の SIM_PRICE_OFFSETS の 0)
+const pctS = v => (v > 0 ? '+' : v < 0 ? '−' : '±') + Math.abs(v).toFixed(1) + '%';
+let SIM_R, SIM_SEL = [1, SIM_BASE_COL];  // 表で選んだセル(初期は10年後に入力した変動率で売却)
 async function renderSim() {
   let r;
   try { r = await api('/api/cashflow', simParams()); }
@@ -1506,13 +1585,15 @@ async function renderSim() {
   for (const [k, v] of Object.entries(r.running.items)) out('running.' + k, yenS(v));
   for (const [k, v] of Object.entries(r.turnover.items)) out('turnover.' + k, man1(v));
   out('turnover.per', man1(r.turnover.per_turnover));
+  for (const [k, v] of Object.entries(simEquip())) out('equip.' + k, yenS(v));
+  out('equip.total', yenS(r.running.items.equipment));
   const iv = +document.querySelector('#mode-sim [data-k="interval_years"]').value;
   $('sim_initial').textContent = man1(r.initial.total);
   $('sim_initial_n').textContent = `頭金 ${man1(r.initial.items.down)} + 諸費用 ${man1(r.initial.costs)}(物件価格の ${(r.initial.costs / r.price * 100).toFixed(1)}%)。借入額 ${man1(r.loan_amount)}`;
   $('sim_running').textContent = yenS(r.running.month);
   $('sim_running_n').textContent = `年間 ${man1(r.running.month * 12)}(ローン返済は含まない)。1年目の額で、リスクによる2年目以降の変化は毎月の収支のグラフで見られます`;
   $('sim_risk').textContent = man1(r.turnover.year);
-  $('sim_risk_n').textContent = `1回 ${man1(r.turnover.per_turnover)} × ${iv}年に1回(月あたり ${yenS(r.turnover.year / 12)})。1年目の額`;
+  $('sim_risk_n').textContent = `1戸1回 ${man1(r.turnover.per_turnover)} × ${iv}年に1回${r.units > 1 ? ` × ${r.units}戸` : ''}(月あたり ${yenS(r.turnover.year / 12)})。1年目の額`;
 
   // 節税効果: 選んだ年(初期は平年の2年目)を大きく出し、内訳には1・2年目、設備の償却が終わった後の年、選んだ年を並べる
   $('sim_tax_card').hidden = !r.tax;
@@ -1553,9 +1634,9 @@ async function renderSim() {
   $('sim_monthly_n').textContent = `${i + 1}年目。年間 ${manS(Y.cf[i])}。家賃 ${yenS(mo('rent'))}` +
     (Y.rate[i] == null ? '、ローン完済後' : `、ローン金利 ${Y.rate[i].toFixed(2)}%(うち元金 ${yenS(mo('principal'))} は残高が減るぶん売却時に戻る)`) +
     (r.tax ? `。不動産所得 年 ${manS(Y.taxable[i])}(減価償却 ${man1(Y.depreciation[i])}、耐用年数 躯体 ${r.tax.life}年${r.tax.equipment > 0 ? '・設備 ' + r.tax.equipment_life + '年' : ''}${i === 0 ? '、購入時の諸費用 ' + man1(r.tax.expensed) + ' を経費に' : ''})` : '');
-  const txm = r.tax ? Y.income_tax[i] / 12 : 0;
+  const txm = r.tax ? Y.income_tax[i] / 12 : 0, L = simLabels();
   simBars('chart_sim_month', [['家賃', mo('rent'), SIM_COLOR.rent], ...simTax(txm, '').filter(x => x[2] === SIM_COLOR.saving)], [
-    ['管理費', mo('management'), SIM_COLOR.management], ['修繕積立金', mo('repair'), SIM_COLOR.repair], ['賃貸管理手数料', mo('rental_mgmt'), SIM_COLOR.rental_mgmt],
+    [L.management, mo('management'), SIM_COLOR.management], ...(simBldg() ? [] : [[L.repair, mo('repair'), SIM_COLOR.repair]]), ['賃貸管理手数料', mo('rental_mgmt'), SIM_COLOR.rental_mgmt],
     ['固定資産税・保険・修繕費など', mo('other'), SIM_COLOR.other], ['入れ替え・空室(月換算)', mo('turnover'), SIM_COLOR.turnover],
     ['ローン利息', mo('interest'), SIM_COLOR.interest], ['ローン元金', mo('principal'), SIM_COLOR.principal], ...simTax(txm, '').filter(x => x[2] === SIM_COLOR.tax)], '円/月', 1);
 
@@ -1573,10 +1654,10 @@ async function renderSim() {
     renderSim.bound = true;
     $('chart_sim_trend').on('plotly_click', e => { $('s_cf_year').value = e.points[0].x; renderSim(); });
   }
-  $('sim_grid').innerHTML = `<tr><th>売却 \\ 売却価格</th>${r.price_changes.map(c => `<th>${c > 0 ? '+' : c < 0 ? '−' : '±'}${Math.abs(c)}%<br><span class="ns">${man1(r.price * (1 + c / 100))}</span></th>`).join('')}</tr>` +
+  $('sim_grid').innerHTML = `<tr><th>売却 \\ 物件価格の変動</th>${r.price_changes.map((c, i) => `<th>${pctS(c)}/年${i === SIM_BASE_COL ? '<br><span class="ns">(入力値)</span>' : ''}</th>`).join('')}</tr>` +
     r.grid.map((row, h) => `<tr><td>${r.hold_years[h]}年後</td>${row.map((g, c) => {
       const tip = `売却価格 ${man1(g.sale_price)} − 仲介手数料 ${man1(g.sale_cost)} − ローン残高 ${man1(g.balance)}${r.tax ? ' − 譲渡所得税 ' + man1(g.sale_tax) : ''}\n保有中の収支の累計 ${manS(g.cash_flow)}\nイニシャルコスト −${man1(r.initial.total)}`;
-      return `<td data-h="${h}" data-c="${c}" title="${tip}" class="${g.total >= 0 ? 'pos' : 'neg'}"><b>${manS(g.total)}</b><div class="n">年 ${g.irr == null ? '—' : pct(g.irr)}</div>` +
+      return `<td data-h="${h}" data-c="${c}" title="${tip}" class="${g.total >= 0 ? 'pos' : 'neg'}"><b>${manS(g.total)}</b><div class="n">年 ${g.irr == null ? '—' : pct(g.irr)}</div><div class="n">売却 ${man1(g.sale_price)}</div>` +
         (hasRisk ? `<div class="n">リスク ${manS(g.total - g.total_base)}</div>` : '') + '</td>';
     }).join('')}</tr>`).join('');
   renderSimTotal();
@@ -1585,18 +1666,28 @@ function renderSimTotal() {
   const r = SIM_R, [h, c] = SIM_SEL, g = r.grid[h][c], ch = r.price_changes[c];
   document.querySelectorAll('#sim_grid td.sel').forEach(e => e.classList.remove('sel'));
   document.querySelector(`#sim_grid td[data-h="${h}"][data-c="${c}"]`).classList.add('sel');
-  $('sim_total_title').textContent = `総収支の内訳(${r.hold_years[h]}年後に${ch === 0 ? '購入価格' : `購入価格の${ch > 0 ? '+' : '−'}${Math.abs(ch)}%`}で売却)`;
+  $('sim_total_title').textContent = `総収支の内訳(${r.hold_years[h]}年後に売却。物件価格 ${pctS(ch)}/年で${man1(g.sale_price)})`;
   $('sim_total').innerHTML = `<span class="${g.total >= 0 ? 'pos' : 'neg'}">${manS(g.total)}</span>`;
   const hasRisk = Object.entries(r.risk).some(([k, v]) => k !== 'rate_rise_years' && v > 0);
   $('sim_total_n').textContent = `年利回り ${g.irr == null ? '—' : pct(g.irr)}。` +
     (hasRisk ? `リスクなしなら ${manS(g.total_base)}(年 ${g.irr_base == null ? '—' : pct(g.irr_base)})。` : '') + '表のセルをクリックすると切り替わります';
-  const tx = simTax(g.income_tax, '(累計)');
+  const tx = simTax(g.income_tax, '(累計)'), L = simLabels();
   simBars('chart_sim_total', [['家賃(累計)', g.rent, SIM_COLOR.rent], ['売却価格', g.sale_price, SIM_COLOR.sale], ...tx.filter(x => x[2] === SIM_COLOR.saving)], [
     ['頭金', r.initial.items.down, SIM_COLOR.down], ['購入時の諸費用', r.initial.costs, SIM_COLOR.costs],
-    ['管理費', g.management, SIM_COLOR.management], ['修繕積立金', g.repair, SIM_COLOR.repair], ['賃貸管理手数料', g.rental_mgmt, SIM_COLOR.rental_mgmt],
+    [L.management, g.management, SIM_COLOR.management], ...(simBldg() ? [] : [[L.repair, g.repair, SIM_COLOR.repair]]), ['賃貸管理手数料', g.rental_mgmt, SIM_COLOR.rental_mgmt],
     ['固定資産税・保険・修繕費など', g.other, SIM_COLOR.other], ['入れ替え・空室', g.turnover, SIM_COLOR.turnover],
     ['ローン利息', g.interest, SIM_COLOR.interest], ['ローン元金(返済分)', g.principal, SIM_COLOR.principal], ['売却時に残債を返済', g.balance, SIM_COLOR.balance],
     ['売却時の仲介手数料', g.sale_cost, SIM_COLOR.sale_cost], ...tx.filter(x => x[2] === SIM_COLOR.tax), ...(r.tax ? [['譲渡所得税', g.sale_tax, SIM_COLOR.sale_tax]] : [])], '万円', 1e4);
+
+  // 推移: 表で選んだ列の価格の変動率で、1年後〜返済期間の終わり(30年未満なら30年)に売った場合の総収支とその内訳(万円)
+  const T = r.trend[c], n = Math.min(T.total.length, Math.max(30, Math.ceil(+$('s_years').value))), hy = r.hold_years[h];
+  const x = Array.from({ length: n }, (_, j) => j + 1), man = a => a.slice(0, n).map(v => v / 1e4), tot = man(T.total);
+  Plotly.react('chart_sim_total_trend', [
+    { x, y: tot, type: 'bar', name: '総収支', marker: { color: tot.map(v => css(v >= 0 ? '--s3' : '--hl-text')), opacity: x.map(v => v === hy ? 1 : 0.6) }, hovertemplate: '%{x}年後に売却: %{y:,.0f}万円<extra>総収支</extra>' },
+    { x, y: man(T.holding), mode: 'lines', name: '保有中の収支(自己資金を含む累計)', line: { color: SIM_COLOR.interest, width: 2 }, hovertemplate: '%{y:,.0f}万円<extra>保有中の収支</extra>' },
+    { x, y: man(T.sale_net), mode: 'lines', name: '売却代金の手取り(残債などを引いた額)', line: { color: SIM_COLOR.sale, width: 2 }, hovertemplate: '%{y:,.0f}万円<extra>売却代金の手取り</extra>' },
+    ...(hasRisk ? [{ x, y: man(T.total_base), mode: 'lines', name: '総収支(リスクなし)', line: { color: css('--text2'), width: 1.5, dash: 'dot' }, hovertemplate: '%{y:,.0f}万円<extra>リスクなし</extra>' }] : []),
+  ], layout({ xaxis: { title: { text: '売却するまでの年数' } }, yaxis: { title: { text: '万円' }, tickformat: ',', zeroline: true, zerolinecolor: css('--text2') }, legend: { y: 1.15 }, margin: { t: 30 } }), CFG);
 }
 
 // 人口(社人研の推計と国勢調査)。初めて開いたときに読み込む
@@ -1841,6 +1932,35 @@ async function renderLong() {
     r.rows.map(w => `<tr data-city="${w.city}"${w.city === r.city ? ' class="hl"' : ''}><td>${w.city}</td><td>${times(w.land?.value)}</td><td>${times(w.rent?.value)}</td><td>${times(w.ratio?.value)}</td>
       <td>${w.land_peak.year}年</td><td>${(w.land_peak.latest_vs_peak * 100).toFixed(0)}%</td></tr>`).join('');
   for (const tr of document.querySelectorAll('#lt_table tr[data-city]')) tr.onclick = () => renderLong.pick(tr.dataset.city);
+  renderLongYield(r.city);
+}
+// 表面利回りの推計。都市の回帰を使うので、他のグラフを待たせないよう別に描く
+async function renderLongYield(city) {
+  const note = $('lt_yield_note');
+  note.textContent = '計算中…'; note.className = 'note';
+  let r;
+  try { r = await api('/api/long-yield', { city }); }
+  catch (e) { if ($('lt_city').value === city) { note.textContent = e.message; note.className = 'err'; Plotly.purge('chart_lt_yield'); } return; }
+  if ($('lt_city').value !== city) return;  // 計算中に都市が変わった
+  const pc = a => a.map(v => v * 100), b = r.back, sd = r.standard, last = r.years.length - 1;
+  $('lt_yield_title').textContent = `表面利回りの推計(${city}、${sd.area}㎡・築${sd.age}年・駅徒歩${sd.station_min}分のワンルーム)`;
+  Plotly.react('chart_lt_yield', [
+    { x: b.years, y: pc(b.half), mode: 'lines', line: { width: 0 }, showlegend: false, hoverinfo: 'skip' },
+    { x: b.years, y: pc(b.land), mode: 'lines', fill: 'tonexty', fillcolor: 'rgba(42,120,214,0.15)', line: { color: css('--s1'), width: 2, dash: 'dash' },
+      name: `〜${r.years[0] - 1}年: 物件価格が地価と同じ率で動いた場合(網掛けは価格の半分が物価に連動した場合まで)`, customdata: pc(b.half),
+      hovertemplate: '%{y:.1f}%(%{customdata:.1f}%まで)<extra>地価から推計</extra>' },
+    { x: r.years, y: pc(r.gross), mode: 'lines+markers', line: { color: css('--s1'), width: 3 }, name: `${r.years[0]}年〜: 取引データの推定価格から`,
+      customdata: r.years.map((_, i) => [r.price[i] / 1e4, r.rent[i]]), hovertemplate: '%{y:.2f}%(価格 %{customdata[0]:,.0f}万円・家賃 %{customdata[1]:,.0f}円)<extra>推計</extra>' },
+    { x: r.rates.float_store.years, y: r.rates.float_store.values, mode: 'lines', line: { color: css('--s3'), width: 1.5 }, name: '変動金利の店頭の目安(短プラ+1%)', hovertemplate: '%{y:.2f}%<extra>短プラ+1%</extra>' },
+    { x: r.rates.chintai_35.years, y: r.rates.chintai_35.values, mode: 'lines', line: { color: css('--s2'), width: 2 }, name: '投資用: 賃貸住宅融資 35年固定(住宅金融支援機構)', hovertemplate: '%{y:.2f}%<extra>賃貸住宅融資</extra>' },
+    { x: r.rates.jgb10.years, y: r.rates.jgb10.values, mode: 'lines', line: { color: css('--text2'), width: 1.5, dash: 'dot' }, name: '10年国債利回り', hovertemplate: '%{y:.2f}%<extra>10年国債</extra>' },
+  ], layout({ xaxis: { range: [b.years.length ? b.years[0] - 0.5 : r.years[0] - 0.5, r.years[last] + 0.5] }, yaxis: { title: { text: '年率(%)' }, ticksuffix: '%', rangemode: 'tozero' },
+    legend: { y: 1.2 }, margin: { t: 60 } }), CFG);
+  note.textContent = `最新の${r.years[last]}年は ${(r.gross[last] * 100).toFixed(1)}%(推定価格 ${Math.round(r.price[last] / 1e4).toLocaleString()}万円、家賃 ${Math.round(r.rent[last]).toLocaleString()}円/月)。` +
+    `成約した物件の実際の利回りではなく、同じ条件の物件を各年に買った場合の推計です。${r.years[0]}年以降は、区ごとに回帰の推定価格と想定家賃(${r.rent_survey_year}年の住宅・土地統計調査の家賃を消費者物価の家賃指数で各年に延ばした値。${r.rent_last_year}年より後は${r.rent_last_year}年の値)で割り、取引件数で加重平均しています。` +
+    `${r.years[0] - 1}年以前は${r.years[0]}年の値から、家賃指数の変化 ÷ 物件価格の変化 でさかのぼった目安です。物件価格の変化は地価公示から仮定しており、${r.years[0]}年以降はどの都市でもマンション価格が地価より大きく上がっているので、昔の水準は幅を持って見てください。` +
+    '統計の家賃は入居中の世帯の平均で、築年数の補正も粗いため、実際の募集家賃とはずれます。' +
+    `金利のうち投資用は、住宅金融支援機構の賃貸住宅融資(35年固定・繰上返済制限なし、${r.rates.chintai_35.years[0] ?? '—'}年〜の年平均)です。主に賃貸住宅の建設向けの公的な融資で、区分マンションの民間の投資用ローンの長期の金利は公表されていません。`;
 }
 // 金利の超長期推移 [色, 太さ, 線種, 初期表示]
 const LONG_RATE_STYLE = { policy_rate: ['--s2', 2.5, 'solid', true], call_collateral: ['--s2', 1.2, 'dot', false], call_rate: ['--s2', 1.5, 'dot', true],

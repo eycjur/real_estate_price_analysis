@@ -560,25 +560,26 @@ function floatingLoan(principal, rate, years, rise, riseYears) {
 // 収支シミュレーションの内訳の項目(金額は円。_pct は%、_months は家賃の何か月分)
 const SIM_KEYS = {
   purchase: ['loan_fee_pct', 'scrivener', 'registration_pct', 'stamp', 'acquisition_tax_pct', 'fire_insurance', 'settlement'],
-  running: ['management', 'repair_reserve', 'rental_mgmt_pct', 'property_tax', 'equipment', 'insurance', 'accountant'],
+  running: ['management', 'repair_reserve', 'rental_mgmt_pct', 'property_tax', 'equipment', 'insurance', 'earthquake_insurance', 'accountant'],
   turnover: ['interval_years', 'restoration', 'move_out', 'key', 'utilities_month', 'ad_months', 'agent_months', 'free_rent_months', 'vacancy_months'],
-  risk: ['rate_rise_pct', 'rate_rise_years', 'rate_override_pct', 'rent_decline_pct', 'repair_rise_pct'],
+  risk: ['rate_rise_pct', 'rate_rise_years', 'rate_override_pct', 'repair_rise_pct', 'management_rise_pct'],
 };
-const NO_RISK = { rate_rise_pct: 0, rate_rise_years: 0, rate_override_pct: 0, rent_decline_pct: 0, repair_rise_pct: 0 };  // rate_override_pct: 0より大きければ当初からその金利
-const SIM_HOLD_YEARS = [5, 10, 15, 20, 30], SIM_PRICE_CHANGES = [-30, -20, -10, 0, 10, 20];
+const NO_RISK = { rate_rise_pct: 0, rate_rise_years: 0, rate_override_pct: 0, repair_rise_pct: 0, management_rise_pct: 0 };  // rate_override_pct: 0より大きければ当初からその金利
+// 売却価格の列: 入力した物件価格の年率(price_change_pct)にこの幅を足した年率で、保有年数のあいだ複利で変わる
+const SIM_HOLD_YEARS = [5, 10, 15, 20, 30], SIM_PRICE_OFFSETS = [-2, -1, -0.5, 0, 0.5, 1];
 const SIM_YEARS = 50;  // 年ごとの収支を出す年数(画面で選べる年の上限)
-/** 1〜SIM_YEARS年目の年間の収入・支出(円)。家賃は毎年 rent_decline_pct% 下がり、修繕積立金は毎年 repair_rise_pct% 上がる。
+/** 1〜SIM_YEARS年目の年間の収入・支出(円)。家賃と入れ替えのコストは1戸あたりの額 × 戸数(units。区分は1)。家賃は毎年 rent_change_pct% 変わり、修繕積立金は毎年 repair_rise_pct%、管理費は毎年 management_rise_pct% 上がる。
  *  賃貸管理手数料と入れ替え時の家賃何か月分の費用は、その年の家賃で計算する。 */
-function simYearly({ price, rent_month, rate, years, down_pct, running: r, turnover: t }, risk) {
+function simYearly({ price, rent_month, units, rent_change_pct, rate, years, down_pct, running: r, turnover: t }, risk) {
   const loan = price * (1 - down_pct / 100);
   const L = loan > 0 ? floatingLoan(loan, risk.rate_override_pct || rate, years, risk.rate_rise_pct, risk.rate_rise_years) : null;
   const Y = { year: [], rate: [], rent: [], management: [], repair: [], rental_mgmt: [], other: [], turnover: [], interest: [], principal: [], balance: [], cf: [] };
-  const other = r.property_tax + r.equipment + r.insurance + r.accountant;
+  const other = r.property_tax + r.equipment + r.insurance + r.earthquake_insurance + r.accountant;
   for (let y = 1; y <= SIM_YEARS; y++) {
-    const rent = rent_month * Math.pow(1 - risk.rent_decline_pct / 100, y - 1), i = y - 1, on = L && i < L.rate.length;
-    const v = { year: y, rate: on ? L.rate[i] : null, rent: rent * 12, management: r.management * 12, repair: r.repair_reserve * Math.pow(1 + risk.repair_rise_pct / 100, y - 1) * 12,
+    const rent = rent_month * units * Math.pow(1 + rent_change_pct / 100, y - 1), i = y - 1, on = L && i < L.rate.length;
+    const v = { year: y, rate: on ? L.rate[i] : null, rent: rent * 12, management: r.management * Math.pow(1 + risk.management_rise_pct / 100, y - 1) * 12, repair: r.repair_reserve * Math.pow(1 + risk.repair_rise_pct / 100, y - 1) * 12,
       rental_mgmt: rent * r.rental_mgmt_pct / 100 * 12, other: other * 12,
-      turnover: (t.restoration + t.move_out + t.key + t.utilities_month * t.vacancy_months + rent * (t.ad_months + t.agent_months + t.free_rent_months + t.vacancy_months)) / t.interval_years,
+      turnover: (t.restoration * units + t.move_out * units + t.key * units + t.utilities_month * t.vacancy_months * units + rent * (t.ad_months + t.agent_months + t.free_rent_months + t.vacancy_months)) / t.interval_years,
       interest: on ? L.interest[i] : 0, principal: on ? L.principal[i] : 0, balance: on ? L.balance[i] : 0 };
     v.cf = v.rent - v.management - v.repair - v.rental_mgmt - v.other - v.turnover - v.interest - v.principal;
     for (const k of Object.keys(Y)) Y[k].push(v[k]);
@@ -607,25 +608,27 @@ function addIncomeTax(S, tax, { acquisition, expensed, loan }) {
   return { life, equipment_life: equipmentLife, building, equipment };
 }
 /** 区分マンション投資の収支。購入時の費用(頭金+諸費用)、月々のランニングコスト、入居者の入れ替え(空室など)を年平均にならしたコスト、
- *  ローン返済から、売却する年数 × 売却価格(購入価格からの変化率%)ごとの総収支と、自己資金に対する年利回り(IRR)を出す。
- *  risk(金利上昇・当初からの高い金利・家賃下落・修繕積立金の上昇)を反映した値と、反映しない値(_base)の両方を返す。
+ *  ローン返済から、売却する年数 × 売却価格の年率(price_change_pct + SIM_PRICE_OFFSETS、%/年)ごとの総収支と、自己資金に対する年利回り(IRR)を出す。
+ *  家賃は毎年 rent_change_pct% 変わる。risk(金利上昇・当初からの高い金利・修繕積立金と管理費の値上げ)を反映した値と、反映しない値(_base)の両方を返す。
  *  総収支 = −自己資金 + 保有中の収支の累計 + (売却価格 − 売却時の仲介手数料 − ローン残高 − 譲渡所得税)。
  *  tax(税率%・建物の割合%・建物のうち設備の割合%・築年数・構造の法定耐用年数)を渡すと、保有中の所得税・住民税(節税効果を含む)と売却時の譲渡所得税を入れる。null なら税金は含めない。 */
 export function cashflowSim(q) {
-  const { price, rent_month, rate, years, down_pct, brokerage, sale_brokerage, purchase, running, turnover } = q, risk = { ...NO_RISK, ...q.risk };
+  const { price, rent_month, units, rent_change_pct, price_change_pct, rate, years, down_pct, brokerage, sale_brokerage, purchase, running, turnover } = q, risk = { ...NO_RISK, ...q.risk };
   if (!(price > 0 && rent_month >= 0 && rate >= 0 && years >= 1 && down_pct >= 0 && down_pct <= 100)) throw new Error('物件価格・家賃・金利・返済期間・頭金を正しく入れてください。');
   const groups = { purchase, running, turnover, risk };
   for (const [g, keys] of Object.entries(SIM_KEYS)) {
     const bad = keys.filter(k => !(groups[g]?.[k] >= 0));
     if (bad.length) throw new Error(`費用の内訳・リスクの前提が不正です: ${bad}`);
   }
+  if (!(Number.isInteger(units) && units >= 1)) throw new Error('戸数は1以上の整数にしてください。');
   if (!(turnover.interval_years > 0)) throw new Error('入れ替えの頻度は0より大きい年数にしてください。');
-  if (!(risk.rent_decline_pct < 100)) throw new Error('家賃の下落率は100%未満にしてください。');
+  if (!(rent_change_pct > -100)) throw new Error('家賃の変動率は−100%より大きくしてください。');
+  if (!(price_change_pct + Math.min(...SIM_PRICE_OFFSETS) > -100)) throw new Error(`物件価格の変動率は${-100 - Math.min(...SIM_PRICE_OFFSETS)}%より大きくしてください。`);
   const tax = q.tax ?? null;
   if (tax && !(tax.rate_pct >= 0 && tax.rate_pct <= 100 && tax.building_ratio_pct >= 0 && tax.building_ratio_pct <= 100 && tax.building_age >= 0 && tax.legal_life >= 1 && tax.equipment_ratio_pct >= 0 && tax.equipment_ratio_pct <= 100))
     throw new Error('税率・建物と設備の割合・築年数・耐用年数を正しく入れてください。');
 
-  const loan = price * (1 - down_pct / 100), rent = rent_month;
+  const loan = price * (1 - down_pct / 100), rent = rent_month * units;
   const init = { down: price - loan, brokerage: brokerage ? brokerageFee(price) : 0, loan_fee_pct: loan * purchase.loan_fee_pct / 100, scrivener: purchase.scrivener,
     registration_pct: price * purchase.registration_pct / 100, stamp: purchase.stamp, acquisition_tax_pct: price * purchase.acquisition_tax_pct / 100,
     fire_insurance: purchase.fire_insurance, settlement: purchase.settlement };
@@ -633,8 +636,9 @@ export function cashflowSim(q) {
   // 1年目の内訳(画面のカード)
   const run = { ...running, rental_mgmt_pct: rent * running.rental_mgmt_pct / 100 };
   const t = turnover;
+  // 入れ替え1回(1戸)あたりの費用。年平均は全戸ぶん(× units)
   const tv = { restoration: t.restoration, move_out: t.move_out, key: t.key, utilities_month: t.utilities_month * t.vacancy_months,
-    ad_months: rent * t.ad_months, agent_months: rent * t.agent_months, free_rent_months: rent * t.free_rent_months, vacancy_months: rent * t.vacancy_months };
+    ad_months: rent_month * t.ad_months, agent_months: rent_month * t.agent_months, free_rent_months: rent_month * t.free_rent_months, vacancy_months: rent_month * t.vacancy_months };
   const perTurn = sum(Object.values(tv));
 
   const Y = simYearly(q, risk), B = simYearly(q, NO_RISK);
@@ -646,23 +650,39 @@ export function cashflowSim(q) {
     addIncomeTax(B, tax, ctx);
   }
   const cum = (a, h) => sum(a.slice(0, h));
-  const scenario = (S, h, c) => {
-    const sale = price * (1 + c / 100), saleCost = sale_brokerage ? brokerageFee(sale) : 0, bal = S.balance[h - 1];
+  // h年後に年率 c% で変わった価格で売ったときの売却代金の手取り
+  const saleNet = (S, h, c) => {
+    const sale = price * Math.pow(1 + c / 100, h), saleCost = sale_brokerage ? brokerageFee(sale) : 0, bal = S.balance[h - 1];
     // 譲渡所得 = 売却価格 − 売却費用 − (取得費 − 減価償却の累計)。保有5年以下は短期の税率(売却した年の1月1日時点の所有期間の判定は考えない)
     const saleTax = tax ? Math.max(0, sale - saleCost - (acquisition - cum(S.depreciation, h))) * (h > 5 ? SALE_TAX_LONG : SALE_TAX_SHORT) / 100 : 0;
-    const net = sale - saleCost - bal - saleTax;
+    return { sale, saleCost, bal, saleTax, net: sale - saleCost - bal - saleTax };
+  };
+  const scenario = (S, h, c) => {
+    const { sale, saleCost, bal, saleTax, net } = saleNet(S, h, c);
     const f = [-initial, ...S.cf.slice(0, h)]; f[h] += net;
     return { total: -initial + cum(S.cf, h) + net, irr: irr(f), sale_price: sale, sale_cost: saleCost, balance: bal, sale_tax: saleTax, cash_flow: cum(S.cf, h),
       income_tax: tax ? cum(S.income_tax, h) : 0,
       ...Object.fromEntries(['rent', 'management', 'repair', 'rental_mgmt', 'other', 'turnover', 'interest', 'principal'].map(k => [k, cum(S[k], h)])) };
   };
-  const grid = SIM_HOLD_YEARS.map(h => SIM_PRICE_CHANGES.map(c => {
+  const priceChanges = SIM_PRICE_OFFSETS.map(o => price_change_pct + o);
+  const grid = SIM_HOLD_YEARS.map(h => priceChanges.map(c => {
     const b = scenario(B, h, c);
     return { ...scenario(Y, h, c), total_base: b.total, irr_base: b.irr };
   }));
+  // 売却する年ごと(1〜SIM_YEARS年後)の総収支 = 保有中の収支(−自己資金 + 収支の累計) + 売却代金の手取り。価格の列ごと
+  const trend = priceChanges.map(c => {
+    const o = { holding: [], sale_net: [], total: [], total_base: [] };
+    let cf = -initial, cfB = -initial;
+    for (let h = 1; h <= SIM_YEARS; h++) {
+      cf += Y.cf[h - 1]; cfB += B.cf[h - 1];
+      const net = saleNet(Y, h, c).net;
+      o.holding.push(cf); o.sale_net.push(net); o.total.push(cf + net); o.total_base.push(cfB + saleNet(B, h, c).net);
+    }
+    return o;
+  });
   return { price, loan_amount: loan, initial: { total: initial, costs: initial - init.down, items: init },
-    running: { month: sum(Object.values(run)), items: run }, turnover: { per_turnover: perTurn, year: perTurn / t.interval_years, items: tv },
-    risk, tax: taxInfo, yearly: Y, yearly_base: B, hold_years: SIM_HOLD_YEARS, price_changes: SIM_PRICE_CHANGES, grid };
+    running: { month: sum(Object.values(run)), items: run }, turnover: { per_turnover: perTurn, year: perTurn * units / t.interval_years, items: tv }, units,
+    risk, tax: taxInfo, yearly: Y, yearly_base: B, hold_years: SIM_HOLD_YEARS, price_changes: priceChanges, grid, trend };
 }
 
 // 人口: 年齢層は5歳階級の下限で選ぶ(90 = 90歳以上)
@@ -810,6 +830,64 @@ export async function longTerm({ city, base = 1985, real = false, metric = 'land
   };
 }
 
+const LONG_YIELD_STD = { area: 25, age: 20, station_min: 10 };  // 標準的なワンルーム
+/** 長期推移: 標準的なワンルーム(25㎡・築20年・駅徒歩10分)の表面利回りの推計。成約物件の実際の利回りではない。
+ *  回帰の期間(2010年〜): 区ごとに 想定家賃 × 12 ÷ 回帰の推定価格 を取引件数で加重平均。家賃は住宅・土地統計調査の水準を、
+ *  消費者物価の家賃指数で各年に延ばす(指数のない最新年は最後の値のまま)。
+ *  それより前: 回帰の最初の年の利回りから 家賃の変化 ÷ 物件価格の変化 でさかのぼる。物件価格の変化は
+ *  s × 地価の変化 + (1 − s) × 物価の変化(建物分) とし、s = 1(地価と同じ率)と s = 0.5(半分は物価)の2通りを幅として返す。
+ *  s を回帰の期間に合わせて推定しないのは、2010年以降は建築費の上昇などで物件価格が地価より大きく上がり、s が0か1に張り付くため。 */
+export async function longYield({ city }) {
+  const [L, m, loan] = await Promise.all([loadLong(), loadMeta(), loadLoan()]);
+  if (!L.land[city]) throw new Error(`長期推移の都市が不正です: ${city}`);
+  const f = await getFit({ city, kind: 'mansion' }), { ds } = f;
+  property(f, m, LONG_YIELD_STD);  // 区ごとの行(f.byWard)を作る
+  const yi = y => L.years.indexOf(y), rentIdx = L.rent[city], lastRent = rentIdx.findLastIndex(v => v != null);
+  const rentAt = y => rentIdx[Math.min(yi(y), lastRent)];
+  const survey = rentAt(L.rent_survey_year);
+  // 家賃指数のない年(相模原市は2015年〜など)は除く
+  const years = [...new Set(Array.from(f.rows, r => year(ds, r)))].filter(y => rentAt(y) != null).sort((a, b) => a - b);
+  if (!years.length) throw new Error(`${city} の家賃指数がありません。`);
+  const wards = [];
+  for (const [w, rows] of f.byWard) {
+    let rent;
+    try { rent = estimatedRent(m, ds.wards[w], city, LONG_YIELD_STD.area, LONG_YIELD_STD.age).rent; } catch { continue; }  // その区・面積区分の家賃統計がない
+    wards.push({ n: rows.length, rent, prop: property(f, m, { ...LONG_YIELD_STD, ward: ds.wards[w] }).prop });
+  }
+  if (!wards.length) throw new Error(`${city} の家賃統計がありません。`);
+  const n = sum(wards.map(w => w.n));
+  const est = years.map(y => {
+    let price = 0, rent = 0, gross = 0;
+    for (const w of wards) {
+      const pr = Math.exp(predict(f, { ...w.prop, year: y }).mu), rt = w.rent * rentAt(y) / survey;
+      price += w.n * pr; rent += w.n * rt; gross += w.n * rt * 12 / pr;
+    }
+    return { price: price / n, rent: rent / n, gross: gross / n };
+  });
+  // 回帰の最初の年 y0 を起点に、地価(と物価)で価格をさかのぼる
+  const y0 = years[0], land = L.land[city], cpi = L.nation.cpi, i0 = yi(y0);
+  const mix = (s, i) => s * land[i] / land[i0] + (1 - s) * cpi[i] / cpi[i0];
+  const back = { years: [], land: [], half: [] };
+  L.years.forEach((y, i) => {
+    if (y > y0 || land[i] == null || cpi[i] == null || rentIdx[i] == null) return;
+    const g = est[0].gross * rentIdx[i] / rentAt(y0);
+    back.years.push(y); back.land.push(g / mix(1, i)); back.half.push(g / mix(0.5, i));
+  });
+  // 比べる金利の年平均: 10年国債、変動金利の店頭の目安(短プラ+1%)、投資用の目安として住宅金融支援機構の賃貸住宅融資(35年固定)。
+  // minMonths: 年平均に使う最少の月数(賃貸住宅融資は2006年4月からなので、ある月だけで平均する)
+  const annual = (months, values, minMonths) => {
+    const acc = {};
+    months.forEach((mo, i) => { const v = values[i]; if (v != null) (acc[mo.slice(0, 4)] ??= []).push(v); });
+    const a = Object.entries(acc).filter(([, v]) => v.length >= minMonths).sort(([x], [y]) => x - y);
+    return { years: a.map(([y]) => +y), values: a.map(([, v]) => sum(v) / v.length) };
+  };
+  const r = L.rates, series = k => annual(r.month, r.values[k], 12), prime = series('prime_short');
+  return { city, standard: LONG_YIELD_STD, years, price: est.map(e => e.price), rent: est.map(e => e.rent), gross: est.map(e => e.gross),
+    back, rent_last_year: L.years[lastRent], rent_survey_year: L.rent_survey_year,
+    rates: { jgb10: series('jgb10'), float_store: { years: prime.years, values: prime.values.map(v => v + 1) },
+      chintai_35: annual(loan.chintai.month, loan.chintai.rates.free_35, 1) } };
+}
+
 /** 金利の長期推移(月次、1882年〜)。変動の店頭金利の目安(短プラ+1%)と、物価上昇率(全国の持家の帰属家賃を除く総合の前年比、年次)も返す。 */
 export async function longRates() {
   const L = await loadLong(), r = L.rates, cpi = L.nation.cpi;
@@ -820,4 +898,4 @@ export async function longRates() {
 
 export const routes = { meta, fit: fitSummary, profile, forecast, yield: investmentYield, rates, districts, 'district-map': districtMap, population: populationSeries, market,
   'housing-market': housingMarket, 'housing-national': housingNational, loan: loanOverview, repayment, 'loan-calc': loanCalc, cashflow: cashflowSim,
-  long: longTerm, 'long-rates': longRates, 'population-area': populationArea, 'population-compare': populationCompare, 'population-map': populationMap, 'population-geo': populationGeo };
+  long: longTerm, 'long-rates': longRates, 'long-yield': longYield, 'population-area': populationArea, 'population-compare': populationCompare, 'population-map': populationMap, 'population-geo': populationGeo };
