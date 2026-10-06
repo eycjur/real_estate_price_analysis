@@ -13,6 +13,7 @@
 - ローン: 住宅金融支援機構「賃貸住宅融資 参考金利の推移」、日本銀行「貸出先別貸出金」(住宅資金・個人による貸家業の新規貸出)
 - 長期推移: 国土数値情報「地価公示」(住宅地の地点の1983年からの価格)、総務省統計局「消費者物価指数」長期時系列(都市別の家賃、
             全国の物価)、BIS 経由の日本不動産研究所「市街地価格指数」(住宅地、1955年〜)
+- 空室率: 総務省統計局「住宅・土地統計調査」(賃貸用の空き家数と借家数。市区町村別は2013・2018・2023年、時系列統計表は1983年〜)
 
 使い方: uv run python -m reap.etl
 """
@@ -435,6 +436,97 @@ def load_rent_age() -> pd.DataFrame:
         mid = (int(m.group(1)) + min(int(m.group(2)), RENT_SURVEY_YEAR)) / 2
         rows.append((r["city"], RENT_SURVEY_YEAR - mid, r["rent"] / total[r["city"]]))
     return pd.DataFrame(rows, columns=["city", "age", "factor"]).sort_values(["city", "age"])
+
+
+VACANCY_YEARS = (2013, 2018, 2023)  # 市区町村別の表を取得している調査年
+VACANCY_SALE_UNTIL = 1998  # 時系列統計表の注記: この年以前の「賃貸用の空き家」は売却用を含む
+# 調査の後にコードが変わった市町村は、地図の境界(2024年)のコードに付け替えて合算する
+# (滝沢村→滝沢市、富谷町→富谷市、那珂川町→那珂川市、岩舟町は栃木市に編入)
+VACANCY_RECODE = {"03305": "03216", "04423": "04216", "40305": "40231", "09367": "09203"}
+
+
+def _estat_code(v) -> str | None:
+    """地域の欄から5桁の地域コード。令和5年・平成30年は「13101_千代田区」、平成25年は7桁の数値(地域コード+2桁)。"""
+    if isinstance(v, str) and (m := re.match(r"\s*(\d{5})_", v)):
+        return m.group(1)
+    if isinstance(v, (int, float)) and not pd.isna(v) and 1e5 <= v < 1e7:
+        return f"{int(v):07d}"[:5]
+    return None
+
+
+def _estat_area_rows(sh: pd.DataFrame) -> pd.Series:
+    """地域コードが最も多く読める列を地域の列として、行ごとの地域コード(読めない行は None)。"""
+    codes = {c: sh[c].map(_estat_code) for c in sh.columns}
+    return max(codes.values(), key=lambda s: s.notna().sum())
+
+
+def _vacancy_table(path: Path) -> pd.Series:
+    """居住世帯の有無別住宅数の表(市区町村別)から、地域ごとの賃貸用の空き家数。"""
+    sh = pd.read_excel(path, header=None)
+    col = next(c for c in sh.columns if sh[c].astype(str).str.contains("賃貸用").any())
+    code = _estat_area_rows(sh)
+    return _num(sh[col])[code.notna()].set_axis(code.dropna()).dropna()
+
+
+def _tenure_table(path: Path) -> pd.Series:
+    """所有の関係別住宅数の表(市区町村別)から、地域ごとの借家数(「借家」の行の、ラベルの右で最初の数値)。"""
+    sh = pd.read_excel(path, header=None)
+    code = _estat_area_rows(sh)
+    out = {}
+    for i, row in sh.iterrows():
+        if code[i] is None:
+            continue
+        cells = list(row)
+        j = next((j for j, v in enumerate(cells) if isinstance(v, str) and re.sub(r"[\s\d_]", "", v) == "借家"), None)
+        if j is not None:
+            out[code[i]] = next((x for v in cells[j + 1:] if not pd.isna(x := _num(pd.Series([v]))[0])), np.nan)
+    return pd.Series(out, dtype=float).dropna()
+
+
+def _vacancy_timeseries(path: Path, label: str, until: str | None) -> pd.DataFrame:
+    """時系列統計表(全国・都道府県・大都市、昭和58年〜)から、見出しが label の列の塊(次の見出し until まで)を 地域×年 にする。"""
+    sh = pd.read_excel(path, header=None, sheet_name=0)
+    head = next(i for i in sh.index if sh.loc[i].astype(str).str.startswith(label).any())
+    c0 = next(c for c in sh.columns if str(sh.at[head, c]).startswith(label))
+    c1 = next((c for c in sh.columns if c > c0 and until and str(sh.at[head, c]).startswith(until)), sh.columns[-1] + 1)
+    year = lambda v: int(y) if 1900 < (y := _num(pd.Series([v]))[0]) < 2100 else None  # noqa: E731
+    yrow = next(i for i in sh.index if i > head and year(sh.at[i, c0]))
+    years = {c: year(sh.at[yrow, c]) for c in range(c0, c1)}
+    rows = []
+    for i in sh.index:
+        raw = str(sh.at[i, 1]).strip()
+        if not re.fullmatch(r"\d\d|\d{5}", raw):
+            continue
+        code = raw + "000" if len(raw) == 2 and raw != "00" else raw.zfill(5)
+        rows += [(code, y, v) for c, y in years.items() if not pd.isna(v := _num(pd.Series([sh.at[i, c]]))[0])]
+    return pd.DataFrame(rows, columns=["code", "year", "value"])
+
+
+def load_vacancy() -> pd.DataFrame:
+    """住宅・土地統計調査の賃貸用の空き家数と借家数(地域×年)。空室率 = 賃貸用の空き家 ÷ (借家 + 賃貸用の空き家)。
+
+    全国・都道府県・大都市は時系列統計表(1983年〜。1998年以前の賃貸用は売却用を含む)、
+    それ以外の市区町村は各年の市区町村別の表(2013・2018・2023年。表に載るのは市区と人口1万5千人以上の町村)。
+    """
+    raw = RAW / "vacancy"
+    rows = []
+    for y in VACANCY_YEARS:
+        if y == 2013:
+            vac = pd.concat([_vacancy_table(f) for f in sorted(raw.glob("2013_vacant_*.xls"))])
+            ten = pd.concat([_tenure_table(f) for f in sorted(raw.glob("2013_tenure_*.xls"))])
+        else:
+            vac, ten = _vacancy_table(raw / f"{y}_vacant.xlsx"), _tenure_table(raw / f"{y}_tenure.xlsx")
+        vac, ten = vac[~vac.index.duplicated()], ten[~ten.index.duplicated()]
+        d = pd.DataFrame({"rental_vacant": vac, "rented": ten}).dropna()
+        rows.append(d.rename_axis("code").reset_index().assign(year=y))
+    local = pd.concat(rows).replace({"code": VACANCY_RECODE}).groupby(["code", "year"], as_index=False)[["rental_vacant", "rented"]].sum()
+    ts =(_vacancy_timeseries(raw / "ts_vacant.xlsx", "賃貸用の空き家", "売却用").rename(columns={"value": "rental_vacant"})
+          .merge(_vacancy_timeseries(raw / "ts_tenure.xlsx", "借家", None).rename(columns={"value": "rented"}), on=["code", "year"]))
+    out = pd.concat([local[~local["code"].isin(ts["code"])], ts]).sort_values(["code", "year"]).reset_index(drop=True)
+    out["year"] = out["year"].astype(int)
+    out["rate"] = out["rental_vacant"] / (out["rented"] + out["rental_vacant"])
+    print(f"vacancy: {out['code'].nunique()} areas, " + ", ".join(f"{y}年 {n}" for y, n in out.groupby("year")["code"].nunique().items()))
+    return out
 
 
 def _kanji_int(k: str) -> int:
@@ -907,6 +999,7 @@ def main() -> None:
     long_city.to_parquet(OUT / "long_city.parquet", index=False)
     long_nation.to_parquet(OUT / "long_nation.parquet", index=False)
     load_long_rates().to_parquet(OUT / "long_rates.parquet", index=False)
+    load_vacancy().to_parquet(OUT / "vacancy.parquet", index=False)
     print(tx.groupby(["kind", "city"]).size().unstack(0))
 
 

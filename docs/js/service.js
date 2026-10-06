@@ -1,7 +1,7 @@
 // 画面から呼ぶ分析処理 (モデル推定のキャッシュ、断面プロファイル、将来予測、利回り、金利と価格指数、相場、市況、ローン、人口、長期推移)。
 // Web Worker (worker.js) の中で動く。
 
-import { loadAll, loadBoundaries, loadDataset, loadLoan, loadLong, loadMarket, loadMeta, loadPopulation, loadRates } from './data.js';
+import { loadAll, loadBoundaries, loadDataset, loadLoan, loadLong, loadMarket, loadMeta, loadPopulation, loadRates, loadVacancy } from './data.js';
 import { FE_PREFIX, ageEffect, coef, fit, predict, predictRows, table } from './model.js';
 import { interp, linspace, median, quantile, rng, sample } from './stats.js';
 
@@ -565,7 +565,7 @@ const SIM_KEYS = {
   risk: ['rate_rise_pct', 'rate_rise_years', 'rate_override_pct', 'repair_rise_pct', 'management_rise_pct'],
 };
 const NO_RISK = { rate_rise_pct: 0, rate_rise_years: 0, rate_override_pct: 0, repair_rise_pct: 0, management_rise_pct: 0 };  // rate_override_pct: 0より大きければ当初からその金利
-// 売却価格の列: 入力した物件価格の年率(price_change_pct)にこの幅を足した年率で、保有年数のあいだ複利で変わる
+// 売却価格の列: 入力から合成した物件価格の年率(price_change)にこの幅を足した年率で、保有年数のあいだ複利で変わる
 const SIM_HOLD_YEARS = [5, 10, 15, 20, 30], SIM_PRICE_OFFSETS = [-2, -1, -0.5, 0, 0.5, 1];
 const SIM_YEARS = 50;  // 年ごとの収支を出す年数(画面で選べる年の上限)
 /** 1〜SIM_YEARS年目の年間の収入・支出(円)。家賃と入れ替えのコストは1戸あたりの額 × 戸数(units。区分は1)。家賃は毎年 rent_change_pct% 変わり、修繕積立金は毎年 repair_rise_pct%、管理費は毎年 management_rise_pct% 上がる。
@@ -608,12 +608,16 @@ function addIncomeTax(S, tax, { acquisition, expensed, loan }) {
   return { life, equipment_life: equipmentLife, building, equipment };
 }
 /** 区分マンション投資の収支。購入時の費用(頭金+諸費用)、月々のランニングコスト、入居者の入れ替え(空室など)を年平均にならしたコスト、
- *  ローン返済から、売却する年数 × 売却価格の年率(price_change_pct + SIM_PRICE_OFFSETS、%/年)ごとの総収支と、自己資金に対する年利回り(IRR)を出す。
+ *  ローン返済から、売却する年数 × 売却価格の年率(price_change + SIM_PRICE_OFFSETS、%/年)ごとの総収支と、自己資金に対する年利回り(IRR)を出す。
+ *  物件価格の年率は、築年数による変動(price_age_pct、%/年。下がるなら負)と相場の変動(price_market_pct、%/年)を掛け合わせた
+ *  price_change = ((1 + 相場) × (1 + 築年数) − 1) × 100。
  *  家賃は毎年 rent_change_pct% 変わる。risk(金利上昇・当初からの高い金利・修繕積立金と管理費の値上げ)を反映した値と、反映しない値(_base)の両方を返す。
+ *  売却価格 = 市場価値(market_value。省略時は物件価格) × (1 + 年率)^保有年数。購入時の費用・ローン・取得費は物件価格(price)で計算する。
  *  総収支 = −自己資金 + 保有中の収支の累計 + (売却価格 − 売却時の仲介手数料 − ローン残高 − 譲渡所得税)。
  *  tax(税率%・建物の割合%・建物のうち設備の割合%・築年数・構造の法定耐用年数)を渡すと、保有中の所得税・住民税(節税効果を含む)と売却時の譲渡所得税を入れる。null なら税金は含めない。 */
 export function cashflowSim(q) {
-  const { price, rent_month, units, rent_change_pct, price_change_pct, rate, years, down_pct, brokerage, sale_brokerage, purchase, running, turnover } = q, risk = { ...NO_RISK, ...q.risk };
+  const { price, market_value = price, rent_month, units, rent_change_pct, price_age_pct, price_market_pct, rate, years, down_pct, brokerage, sale_brokerage, purchase, running, turnover } = q, risk = { ...NO_RISK, ...q.risk };
+  if (!(market_value > 0)) throw new Error('市場価値は0より大きくしてください。');
   if (!(price > 0 && rent_month >= 0 && rate >= 0 && years >= 1 && down_pct >= 0 && down_pct <= 100)) throw new Error('物件価格・家賃・金利・返済期間・頭金を正しく入れてください。');
   const groups = { purchase, running, turnover, risk };
   for (const [g, keys] of Object.entries(SIM_KEYS)) {
@@ -623,7 +627,9 @@ export function cashflowSim(q) {
   if (!(Number.isInteger(units) && units >= 1)) throw new Error('戸数は1以上の整数にしてください。');
   if (!(turnover.interval_years > 0)) throw new Error('入れ替えの頻度は0より大きい年数にしてください。');
   if (!(rent_change_pct > -100)) throw new Error('家賃の変動率は−100%より大きくしてください。');
-  if (!(price_change_pct + Math.min(...SIM_PRICE_OFFSETS) > -100)) throw new Error(`物件価格の変動率は${-100 - Math.min(...SIM_PRICE_OFFSETS)}%より大きくしてください。`);
+  if (!(price_age_pct > -100 && price_market_pct > -100)) throw new Error('築年数による変動と相場の変動は−100%より大きくしてください。');
+  const priceChange = ((1 + price_market_pct / 100) * (1 + price_age_pct / 100) - 1) * 100;
+  if (!(priceChange + Math.min(...SIM_PRICE_OFFSETS) > -100)) throw new Error(`物件価格の変動率(築年数と相場の合成)は${-100 - Math.min(...SIM_PRICE_OFFSETS)}%より大きくしてください。`);
   const tax = q.tax ?? null;
   if (tax && !(tax.rate_pct >= 0 && tax.rate_pct <= 100 && tax.building_ratio_pct >= 0 && tax.building_ratio_pct <= 100 && tax.building_age >= 0 && tax.legal_life >= 1 && tax.equipment_ratio_pct >= 0 && tax.equipment_ratio_pct <= 100))
     throw new Error('税率・建物と設備の割合・築年数・耐用年数を正しく入れてください。');
@@ -652,7 +658,7 @@ export function cashflowSim(q) {
   const cum = (a, h) => sum(a.slice(0, h));
   // h年後に年率 c% で変わった価格で売ったときの売却代金の手取り
   const saleNet = (S, h, c) => {
-    const sale = price * Math.pow(1 + c / 100, h), saleCost = sale_brokerage ? brokerageFee(sale) : 0, bal = S.balance[h - 1];
+    const sale = market_value * Math.pow(1 + c / 100, h), saleCost = sale_brokerage ? brokerageFee(sale) : 0, bal = S.balance[h - 1];
     // 譲渡所得 = 売却価格 − 売却費用 − (取得費 − 減価償却の累計)。保有5年以下は短期の税率(売却した年の1月1日時点の所有期間の判定は考えない)
     const saleTax = tax ? Math.max(0, sale - saleCost - (acquisition - cum(S.depreciation, h))) * (h > 5 ? SALE_TAX_LONG : SALE_TAX_SHORT) / 100 : 0;
     return { sale, saleCost, bal, saleTax, net: sale - saleCost - bal - saleTax };
@@ -664,7 +670,7 @@ export function cashflowSim(q) {
       income_tax: tax ? cum(S.income_tax, h) : 0,
       ...Object.fromEntries(['rent', 'management', 'repair', 'rental_mgmt', 'other', 'turnover', 'interest', 'principal'].map(k => [k, cum(S[k], h)])) };
   };
-  const priceChanges = SIM_PRICE_OFFSETS.map(o => price_change_pct + o);
+  const priceChanges = SIM_PRICE_OFFSETS.map(o => priceChange + o);
   const grid = SIM_HOLD_YEARS.map(h => priceChanges.map(c => {
     const b = scenario(B, h, c);
     return { ...scenario(Y, h, c), total_base: b.total, irr_base: b.irr };
@@ -682,7 +688,7 @@ export function cashflowSim(q) {
   });
   return { price, loan_amount: loan, initial: { total: initial, costs: initial - init.down, items: init },
     running: { month: sum(Object.values(run)), items: run }, turnover: { per_turnover: perTurn, year: perTurn * units / t.interval_years, items: tv }, units,
-    risk, tax: taxInfo, yearly: Y, yearly_base: B, hold_years: SIM_HOLD_YEARS, price_changes: priceChanges, grid, trend };
+    risk, tax: taxInfo, yearly: Y, yearly_base: B, market_value, hold_years: SIM_HOLD_YEARS, price_change: priceChange, price_changes: priceChanges, grid, trend };
 }
 
 // 人口: 年齢層は5歳階級の下限で選ぶ(90 = 90歳以上)
@@ -765,6 +771,35 @@ export async function populationMap({ metric = 'change', from = 2020, to = 2050,
 /** 地図の境界({コード: [[[経度, 緯度], …], …]})。 */
 export async function populationGeo() {
   return loadBoundaries();
+}
+
+/** 賃貸の空室率の地図: metric 'rate' = year年の空室率、'change' = from年→to年の差(比率の差。0.01 = 1ポイント)。 */
+export async function vacancyMap({ metric = 'rate', year = 2023, from = 2013, to = 2023 }) {
+  const V = await loadVacancy(), at = y => V.years.indexOf(y);
+  if (!['rate', 'change'].includes(metric)) throw new Error(`空室率の表示が不正です: ${metric}`);
+  if (metric === 'change' ? !V.map_years.includes(from) || !V.map_years.includes(to) || from >= to : !V.map_years.includes(year)) throw new Error('地図の年の指定が不正です。');
+  const values = {};
+  for (const [code, r] of Object.entries(V.rate)) {
+    values[code] = metric === 'rate' ? r[at(year)] : r[at(from)] == null || r[at(to)] == null ? null : r[at(to)] - r[at(from)];
+  }
+  return { metric, year, from, to, values, nation: values[V.nation], names: V.names, map_areas: V.map_areas, map_years: V.map_years };
+}
+
+/** 1地域の空室率・賃貸用の空き家数・借家数の推移と、比べる線(その都道府県と全国)。 */
+export async function vacancyArea({ code }) {
+  const V = await loadVacancy();
+  if (!V.rate[code]) throw new Error(`空室率のデータがありません: ${code}`);
+  const pref = code.slice(0, 2) + '000';
+  const line = c => ({ code: c, name: V.names[c], rate: V.rate[c], rental_vacant: V.rental_vacant[c], rented: V.rented[c] });
+  return { years: V.years, sale_until: V.sale_until, area: line(code),
+    others: [...new Set([pref, V.nation])].filter(c => c !== code && V.rate[c]).map(line) };
+}
+
+/** 全国と主要都市の空室率の推移(都市の並びと、地域を選ぶ欄の候補も返す)。 */
+export async function vacancyCompare() {
+  const V = await loadVacancy();
+  return { years: V.years, sale_until: V.sale_until, map_years: V.map_years, nation: V.nation, prefs: V.prefs, names: V.names,
+    rows: [V.nation, ...V.major].map(code => ({ code, name: V.names[code], rate: V.rate[code] })) };
 }
 
 /** 長期推移: 都市の地価(地価公示)・家賃(消費者物価)・物価と、市街地価格指数・不動産価格指数(マンション)を base年=100 にそろえる。
@@ -898,4 +933,5 @@ export async function longRates() {
 
 export const routes = { meta, fit: fitSummary, profile, forecast, yield: investmentYield, rates, districts, 'district-map': districtMap, population: populationSeries, market,
   'housing-market': housingMarket, 'housing-national': housingNational, loan: loanOverview, repayment, 'loan-calc': loanCalc, cashflow: cashflowSim,
-  long: longTerm, 'long-rates': longRates, 'long-yield': longYield, 'population-area': populationArea, 'population-compare': populationCompare, 'population-map': populationMap, 'population-geo': populationGeo };
+  long: longTerm, 'long-rates': longRates, 'long-yield': longYield, 'population-area': populationArea, 'population-compare': populationCompare, 'population-map': populationMap, 'population-geo': populationGeo,
+  'vacancy-map': vacancyMap, 'vacancy-area': vacancyArea, 'vacancy-compare': vacancyCompare };

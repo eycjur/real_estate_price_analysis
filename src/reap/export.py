@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from .etl import VACANCY_SALE_UNTIL, VACANCY_YEARS
 from .model import CATEGORICALS, Spec, fit
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -277,6 +278,26 @@ def population_json() -> tuple[dict, dict]:
     }, geo
 
 
+def vacancy_json(map_areas: list[str], names: dict[str, str]) -> dict:
+    """賃貸の空室率(住宅・土地統計調査)。地図の市区町村と、時系列のある全国・都道府県・大都市について 年ごとの値(なければ null)。"""
+    d = pd.read_parquet(PROCESSED / "vacancy.parquet")
+    years = sorted(int(y) for y in d["year"].unique())
+    series = d[d["code"].isin(set(map_areas) | set(MAJOR_CITIES) | {NATION}) | d["code"].str.endswith("000")]
+    w = {k: series.pivot(index="code", columns="year", values=k).reindex(columns=years) for k in ("rate", "rental_vacant", "rented")}
+    as_list = lambda row, nd: [None if pd.isna(v) else round(float(v), nd) for v in row]
+    missing = [c for c in MAJOR_CITIES if c not in w["rate"].index]
+    if missing:
+        raise SystemExit(f"空室率に主要都市がありません: {missing}")
+    return {
+        "years": years, "map_years": list(VACANCY_YEARS), "sale_until": VACANCY_SALE_UNTIL, "nation": NATION, "major": list(MAJOR_CITIES),
+        "prefs": [c for c in w["rate"].index if c.endswith("000") and c != NATION],
+        "names": {c: names.get(c, c) for c in [*w["rate"].index, *map_areas]}, "map_areas": map_areas,
+        "rate": {c: as_list(r, 4) for c, r in w["rate"].iterrows()},
+        "rental_vacant": {c: as_list(r, 0) for c, r in w["rental_vacant"].iterrows()},
+        "rented": {c: as_list(r, 0) for c, r in w["rented"].iterrows()},
+    }
+
+
 def long_json() -> dict:
     """長期推移タブ: 都市別の地価指数(地価公示、最新年=100)・家賃指数(消費者物価、2020年=100)と、全国の物価・市街地価格指数を共通の年の並びに。
 
@@ -365,6 +386,9 @@ def main() -> None:
     (out / "boundaries.json").write_text(json.dumps(geo, separators=(",", ":")), encoding="utf-8")
     print("population.json", round((out / "population.json").stat().st_size / 1e6, 2), "MB, boundaries.json",
           round((out / "boundaries.json").stat().st_size / 1e6, 2), "MB")
+    (out / "vacancy.json").write_text(json.dumps(vacancy_json(pop["map_areas"], pop["names"]), ensure_ascii=False, separators=(",", ":")),
+                                      encoding="utf-8")
+    print("vacancy.json", round((out / "vacancy.json").stat().st_size / 1e6, 2), "MB")
     (out / "loan.json").write_text(json.dumps(loan_json(), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print("loan.json", round((out / "loan.json").stat().st_size / 1e6, 2), "MB")
     (out / "long.json").write_text(json.dumps(long_json(), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")

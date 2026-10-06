@@ -58,3 +58,37 @@ def test_census_age(tmp_path):
     assert nat == {0: 10, 90: 6} and set(d["year"]) == {2025}  # 90歳以上をまとめ、不詳・再掲・日本人は使わない
     hama = d[(d["code"] == "07999") & (d["sex"] == "f")].set_index("age")["population"].to_dict()
     assert hama == {0: 10 * 13, 90: 6 * 13}  # 浜通り13市町村の合計(識別コード9の行は使わない)
+
+
+def test_vacancy_tables_2023_style(tmp_path):
+    """令和5年・平成30年: 地域は「13101_千代田区」、空き家の種類は列の見出し、所有の関係は行(「2_借家」)。"""
+    vac = [[None, "項目名", "0_総数", "221_賃貸・売却用及び二次的住宅を除く空き家", "222_賃貸用の空き家"],
+           ["a", "00000_全国", 1000, 50, 200], ["0", "13101_千代田区", 100, "-", 20]]
+    ten = [[None, "地域区分", "住宅の所有の関係", None], ["a", "00000_全国", "0_総数", 800], ["a", "00000_全国", "2_借家", 300],
+           ["0", "13101_千代田区", "1_持ち家", 30], ["0", "13101_千代田区", "2_借家", 60]]
+    pd.DataFrame(vac).to_excel(tmp_path / "v.xlsx", header=False, index=False)
+    pd.DataFrame(ten).to_excel(tmp_path / "t.xlsx", header=False, index=False)
+    assert etl._vacancy_table(tmp_path / "v.xlsx").to_dict() == {"00000": 200, "13101": 20}
+    assert etl._tenure_table(tmp_path / "t.xlsx").to_dict() == {"00000": 300, "13101": 60}
+
+
+def test_vacancy_tables_2013_style(tmp_path):
+    """平成25年(都道府県ごと): 地域は7桁の数値(地域コード+2桁)、借家の行のラベルは全角空白入りで、数値の前に注記の列がある。"""
+    vac = [[None, None, None, "二次的住宅", "賃貸用の住宅"], [2.0, 1310036.0, "特別区部", 5, 400], [2.0, 1310156.0, "千代田区", 1, 30]]
+    ten = [[None, None, "住宅の種類", None, None], [4.0, 1310156.0, "住\u3000宅\u3000総\u3000数", "1)", 100],
+           [4.0, 1310156.0, "\u3000借\u3000\u3000\u3000家", None, 70], [4.0, 110036.0, "借家", None, 9]]
+    pd.DataFrame(vac).to_excel(tmp_path / "v.xlsx", header=False, index=False)
+    pd.DataFrame(ten).to_excel(tmp_path / "t.xlsx", header=False, index=False)
+    assert etl._vacancy_table(tmp_path / "v.xlsx").to_dict() == {"13100": 400, "13101": 30}
+    assert etl._tenure_table(tmp_path / "t.xlsx").to_dict() == {"13101": 70, "01100": 9}
+
+
+def test_vacancy_timeseries(tmp_path):
+    """時系列統計表: 見出しの列の塊(次の見出しまで)を 地域×年 に。都道府県は2桁、大都市は5桁。"""
+    rows = [[None, None, "総数", None, "賃貸用の空き家", None, "売却用の空き家"],
+            [None, "Area", "1983", "2023", "1983", "2023", "2023"],
+            [None, "00", 10, 20, 3, 4, 1], [None, "13", 5, 6, "-", 2, 1], [None, "13100", 4, 5, 1, 2, 0]]
+    pd.DataFrame(rows).to_excel(tmp_path / "ts.xlsx", header=False, index=False)
+    d = etl._vacancy_timeseries(tmp_path / "ts.xlsx", "賃貸用の空き家", "売却用")
+    assert d.set_index(["code", "year"])["value"].to_dict() == {
+        ("00000", 1983): 3, ("00000", 2023): 4, ("13000", 2023): 2, ("13100", 1983): 1, ("13100", 2023): 2}

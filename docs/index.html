@@ -50,6 +50,7 @@ input[type=number] { width: 84px; }
 .tabs.modes { margin-bottom: 14px; }
 .tabs.modes button { font-size: 15px; padding: 9px 18px; }
 .tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+.cache-btn { font: inherit; font-size: 12px; margin-top: 8px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text2); cursor: pointer; }
 .tabs button { font: inherit; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text2); cursor: pointer; }
 .tabs button[aria-selected=true] { background: var(--accent); border-color: var(--accent); color: #fff; }
 h2 { font-size: 15px; margin: 0 0 8px; }
@@ -119,6 +120,7 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
     <button data-mode="loan" aria-selected="false">ローン・金利</button>
     <button data-mode="sim" aria-selected="false">収支シミュレーション</button>
     <button data-mode="population" aria-selected="false">人口</button>
+    <button data-mode="vacancy" aria-selected="false">賃貸の空室率</button>
     <button data-mode="long" aria-selected="false">長期推移(地価・家賃・金利)</button>
   </div>
 
@@ -497,6 +499,7 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
     <div class="filters">
       <label class="f">物件の種類<select id="s_type"><option value="unit">区分マンション</option><option value="bldg">1棟(アパート・マンション)</option></select></label>
       <label class="f">物件価格(万円)<input type="number" id="s_price" value="2700" min="1" step="50" style="width:100px"></label>
+      <label class="f">市場価値(万円、売却価格のもと)<input type="number" id="s_market" min="1" step="50" placeholder="物件価格と同じ" style="width:120px"></label>
       <label class="f" id="s_units_wrap" hidden>戸数<input type="number" id="s_units" value="8" min="1" step="1" style="width:70px"></label>
       <label class="f"><span data-l="rent">家賃(円/月)</span><input type="number" id="s_rent" value="87000" min="0" step="1000" style="width:100px"></label>
       <label class="f"><span data-l="management_in">管理費(円/月)</span><input type="number" data-g="running" data-k="management" value="7000" min="0" step="500" style="width:90px"></label>
@@ -511,8 +514,9 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
       <label class="f">売却時の仲介手数料<select id="s_sale_brokerage"><option value="1">あり(3.3%+6.6万円)</option><option value="0">なし</option></select></label>
     </div>
     <div class="filters" style="margin-top:10px">
-      <label class="f">家賃変動率(年%)<input type="number" id="s_rent_change" value="-0.5" step="0.1"></label>
-      <label class="f">物件価格変動率(年%)<input type="number" id="s_price_change" value="-0.5" step="0.1"></label>
+      <label class="f">家賃の変動率(年%)<input type="number" id="s_rent_change" value="-1" step="0.1"></label>
+      <label class="f">物件価格: 築年数による変動(年%)<input type="number" id="s_price_age" value="-3" step="0.1"></label>
+      <label class="f">物件価格: 相場の変動(年%)<input type="number" id="s_price_market" value="3" step="0.1"></label>
       <label class="f">リスク<select id="s_risk">
         <option value="{}">なし(費用・金利が一定)</option>
         <option value='{"rate_rise_pct":0.1,"rate_rise_years":10}'>金利上昇: 10年で+1%(+0.1%/年)</option>
@@ -590,8 +594,8 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
       <li>イニシャルコスト = 頭金 + 諸費用(仲介手数料・ローン事務手数料・登記・税・保険・精算金)。借入額 = 物件価格 − 頭金。諸費用は現金で払う前提です。</li>
       <li>ローンは元利均等。金利の上昇を入れると変動金利として毎年見直し、その時点の残高・残り期間で返済額を計算し直します(実際の商品にある「返済額は5年間据え置き・見直し時も1.25倍まで」のルールは考えていません)。</li>
       <li>毎月の収支 = 家賃 − ランニングコスト − 入れ替えのコスト(年平均の12分の1) − ローン返済(利息+元金)。元金の返済は支出ですが、ローン残高が減るぶん売却時の手取りが増えます。</li>
-      <li>入れ替えのコストは、1回あたりの費用(原状回復などの定額 + 広告料・仲介・フリーレント・空室期間の家賃)を、入れ替えの頻度で割って毎年ならしています。家賃は毎年、入力した家賃変動率で変わります。家賃が下がると、賃貸管理手数料と家賃何か月分の費用も下がります。</li>
-      <li>売却価格 = 物件価格 × (1 + 物件価格変動率)^保有年数。<br>総収支 = −イニシャルコスト + 保有中の毎年の収支の累計 + (売却価格 − 売却時の仲介手数料 − ローン残高)。年利回りは、購入時の自己資金と毎年の収支・売却代金を年単位のキャッシュフローとみた内部収益率です。売却代金で残債を返しきれず、最後まで支出しかない場合などは求まらないため「—」になります。</li>
+      <li>入れ替えのコストは、1回あたりの費用(原状回復などの定額 + 広告料・仲介・フリーレント・空室期間の家賃)を、入れ替えの頻度で割って毎年ならしています。家賃は毎年、入力した家賃の変動率で変わります(初期値の−1%/年は、令和5年住宅・土地統計調査の建築時期別の民営借家の1畳当たり家賃が築5〜47年で年約1.2%低いことからの目安)。家賃が下がると、賃貸管理手数料と家賃何か月分の費用も下がります。</li>
+      <li>売却価格 = 市場価値 × {(1 + 相場の変動) × (1 + 築年数による変動)}^保有年数。市場価値は、相場より安く(高く)買えた物件の本来の価格で、空欄なら物件価格と同じです。購入時の費用・ローン・取得費は物件価格で計算します。表の売却価格の後ろの%は、物件価格(購入価格)からの増減です。表の列は、この合成した年率に −2〜+1% の幅を足したものです。初期値は「都市ごとの分析」と同じ回帰を16都市で推定した中央値の目安で、築年数による変動は新築直後(築0〜2年で2割前後下がる)を除いた築3〜40年でマンション年約−3%・戸建年約−2%(1棟は土地付きなので戸建の値)、相場の変動は2021年以降の急騰を除いた2013〜2020年でマンション年約+5%・戸建年約+1%です(マンションは控えめに+3%)。<br>総収支 = −イニシャルコスト + 保有中の毎年の収支の累計 + (売却価格 − 売却時の仲介手数料 − ローン残高)。年利回りは、購入時の自己資金と毎年の収支・売却代金を年単位のキャッシュフローとみた内部収益率です。売却代金で残債を返しきれず、最後まで支出しかない場合などは求まらないため「—」になります。</li>
       <li>税金を含めると、毎年の不動産所得(家賃 − 経費 − 減価償却)に税率を掛けた所得税・住民税を差し引きます。赤字なら給与などの所得と相殺して戻る税金を「節税」として足します(他の所得が十分あり、同じ税率がかかる前提)。経費はローン元金以外の支出で、1年目は購入時の諸費用(仲介手数料を除く)も経費にします。赤字のとき、土地の取得に充てた借入金の利子は相殺できません(借入金はまず建物に充てたとみなします)。</li>
       <li>減価償却は建物部分(取得費 × 建物の割合)の定額法で、耐用年数は選んだ構造の法定耐用年数(RC・SRC 47年、重量鉄骨 34年、木造 22年など)をもとにした中古の簡便法((法定 − 築年数) + 築年数 × 20%、法定耐用年数を過ぎていれば法定の20%)。建物のうち設備(電気・給排水・ガス設備など)の割合を選ぶと、その部分は設備の法定耐用年数15年をもとにした簡便法で償却します(築15年以上なら3年)。償却の総額は同じで、前倒しになるぶん早い時期の税金が減ります。区分マンションの契約書には設備の内訳がないことが多く、実際の申告では割合に合理的な根拠が必要です。</li>
       <li>売却時は、譲渡所得 = 売却価格 − 仲介手数料 − (取得費 − 減価償却の累計) に、保有5年超は20.315%、5年以下は39.63%を掛けた譲渡所得税を引きます。減価償却で毎年の税金が減ったぶん、売却時の譲渡所得が大きくなります。所有期間は実際には売却した年の1月1日時点で判定するため、6年目に売っても短期になることがあります。</li>
@@ -651,6 +655,45 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
     </ul>
   </div>
   </div>
+  <div id="mode-vacancy" hidden>
+  <section class="panel">
+    <h2>賃貸の空室率 <span class="note">— 総務省統計局「住宅・土地統計調査」(5年ごと)。空室率 = 賃貸用の空き家 ÷ (借家 + 賃貸用の空き家)</span></h2>
+    <div class="filters"><label class="f">地域(推移)<select id="vc_area"></select></label></div>
+    <p class="note">地図の市区町村をクリックすると、その地域の推移を表示します(政令市と東京23区は区ごと)。調査員が外観などから判断した空き家を数えるため、管理会社などが公表する空室率より高めに出ます。地域や年の比較の目安として見てください。</p>
+    <p id="vc_status" class="note"></p>
+  </section>
+  <div class="tiles" id="vc_tiles"></div>
+  <div class="panel">
+    <h2 id="vc_map_title">賃貸の空室率(市区町村)</h2>
+    <div class="filters">
+      <label class="f">表示<select id="vc_view"></select></label>
+    </div>
+    <div id="vc_map" style="height:620px;margin-top:10px;border-radius:8px"></div>
+    <div class="maplegend"><span id="vc_lo"></span><span class="bar"></span><span id="vc_hi"></span><span id="vc_legend_note"></span></div>
+    <p class="note" id="vc_map_note"></p>
+  </div>
+  <div class="panel">
+    <h2 id="vc_trend_title">空室率の推移</h2>
+    <div id="chart_vc_trend" class="chart sm"></div>
+    <p class="note" id="vc_trend_note"></p>
+  </div>
+  <div class="panel">
+    <h2>主要都市の比較</h2>
+    <div id="chart_vc_compare" class="chart" style="height:520px"></div>
+    <p class="note">東京23区と政令指定都市。色は北(赤)から南(紫)の順、太線が選択中の地域です(線・表の行をクリックするとその都市を表示)。政令市になる前の年は値がありません。網掛けの期間(1998年以前)は売却用の空き家を含みます。</p>
+    <div class="tblwrap"><table id="vc_table"></table></div>
+  </div>
+  <div class="panel">
+    <h2>データと注意</h2>
+    <ul class="src">
+      <li>空室率: <a href="https://www.e-stat.go.jp/stat-search/files?toukei=00200522" target="_blank" rel="noopener">総務省統計局「住宅・土地統計調査」</a>の賃貸用の空き家数 ÷ (借家数 + 賃貸用の空き家数)。全国・都道府県・東京23区・政令指定都市は令和5年調査の時系列統計表(第4表・第9-2表、1983年〜)、それ以外の市区町村は平成25年・平成30年・令和5年調査の市区町村別の表(居住世帯の有無別住宅数と、住宅の所有の関係別住宅数)から計算しています。借家には公営・UR・給与住宅を含みます。</li>
+      <li>居住者のいない住宅は、調査員が外観などから判断して数えています。管理会社などが公表する空室率(管理物件のうち募集中の住戸の割合など)とは数え方が違い、高めに出る傾向があります。値の水準よりも、地域の比較や推移の目安として見てください。</li>
+      <li>1998年以前の「賃貸用の空き家」は売却用の空き家を含みます(グラフの網掛け)。抽出調査のため、規模の小さい市区町村ほど誤差が大きくなります。</li>
+      <li>市区町村別の表に載るのは市区と人口1万5千人以上の町村で、それ以外は地図で灰色です。調査の後にコードが変わった市町村(滝沢市・富谷市・那珂川市、岩舟町を編入した栃木市)は今の市にまとめ、浜松市は区の再編(2024年)があったため市全体の値で塗っています。福島県の浜通りの市町村は人口の地図と同じくひとつの地域にまとめているため、データなしです。</li>
+      <li>地図の境界: <a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2024.html" target="_blank" rel="noopener">国土数値情報「行政区域」</a>(2024年1月1日時点)を加工して作成。背景地図は国土地理院タイル。</li>
+    </ul>
+  </div>
+  </div>
   <div id="mode-long" hidden>
   <section class="panel">
     <h2>長期推移の条件 <span class="note">— 地価は地価公示(住宅地、1983年〜)と市街地価格指数(六大都市の住宅地、1955年〜)、家賃は消費者物価指数(1970年〜)</span></h2>
@@ -706,14 +749,15 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
   <footer class="note" style="margin-top:24px;line-height:1.8">
     出典: 「不動産取引価格情報・成約価格情報」(国土交通省 <a href="https://www.reinfolib.mlit.go.jp/" target="_blank" rel="noopener">不動産情報ライブラリ</a>)、
     「日本の地域別将来推計人口」(<a href="https://www.ipss.go.jp/" target="_blank" rel="noopener">国立社会保障・人口問題研究所</a>)、
-    「令和5年住宅・土地統計調査」(総務省統計局、<a href="https://www.e-stat.go.jp/" target="_blank" rel="noopener">政府統計の総合窓口(e-Stat)</a>)、
+    「住宅・土地統計調査」(総務省統計局、<a href="https://www.e-stat.go.jp/" target="_blank" rel="noopener">政府統計の総合窓口(e-Stat)</a>)、
     「大字・町丁目位置参照情報」(国土交通省、2024年整備)、「不動産価格指数(住宅)」(国土交通省)、
     「基準割引率および基準貸付利率」「無担保コールレート」「貸出約定平均金利」「長・短期プライムレート(主要行)の推移」(<a href="https://www.boj.or.jp/" target="_blank" rel="noopener">日本銀行</a>)、
     「国債金利情報」(<a href="https://www.mof.go.jp/jgbs/reference/interest_rate/index.htm" target="_blank" rel="noopener">財務省</a>)、
     「既存住宅販売量指数」「建築着工統計」(国土交通省)、「賃貸住宅融資 参考金利の推移表」「住宅ローン利用者の実態調査」(住宅金融支援機構)、「貸出先別貸出金」(日本銀行)、各金融機関の公表金利 を加工して作成。
     人口の地図は国土数値情報「行政区域」(国土交通省)を加工して作成。長期推移は、国土数値情報「地価公示」(国土交通省)、「消費者物価指数」(総務省統計局)、
     日本不動産研究所「市街地価格指数」(<a href="https://data.bis.org/" target="_blank" rel="noopener">BIS</a> の Residential property prices: detailed series より)を加工して作成。市況の首都圏の件数・価格は、東日本不動産流通機構「月例速報 Market Watch」をもとに作成(<a href="https://www.reins.or.jp/" target="_blank" rel="noopener">東日本レインズ</a>)。背景地図: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>。<br>
-    このページは個人が上記のデータを編集・加工して作成したもので、国や各機関が作成・保証したものではありません。推定値は参考情報であり、個別の不動産の査定・投資判断の根拠とはなりません。
+    このページは個人が上記のデータを編集・加工して作成したもので、国や各機関が作成・保証したものではありません。推定値は参考情報であり、個別の不動産の査定・投資判断の根拠とはなりません。<br>
+    <button type="button" id="clear_cache" class="cache-btn">キャッシュを消して再読み込み</button> データや画面を更新したのに古い表示のままのときに押してください。読み込み済みのファイルを取り直し、計算の結果も破棄します。
   </footer>
 </main>
 
@@ -746,6 +790,15 @@ worker.onerror = e => { for (const p of pending.values()) p.reject(new Error(e.m
 function api(path, body) {
   return new Promise((resolve, reject) => { pending.set(++rpcId, { resolve, reject }); worker.postMessage({ id: rpcId, route: path.replace('/api/', ''), body }); });
 }
+// キャッシュの消去: 画面と Worker が読み込んだ同じオリジンのファイル(JS・データ)を、ブラウザの HTTP キャッシュを使わずに取り直してから再読み込みする。
+// 再読み込みで Worker も作り直されるので、Worker 内の推定結果のキャッシュも消える
+$('clear_cache').addEventListener('click', async () => {
+  $('clear_cache').disabled = true; $('clear_cache').textContent = '取り直しています…';
+  const inWorker = await api('/api/resources').catch(() => []);
+  const urls = new Set([location.href.split('#')[0], ...performance.getEntriesByType('resource').map(e => e.name), ...inWorker]);
+  await Promise.allSettled([...urls].filter(u => new URL(u).origin === location.origin).map(u => fetch(u, { cache: 'reload' })));
+  location.reload();
+});
 function fitParams() {
   const o = {};
   for (const id of ['city', 'kind']) o[id] = $(id).value;
@@ -1471,9 +1524,11 @@ const SIM_BLDG_REPAIR = [['exterior', '外壁塗装・シーリング', 15, 250]
   ['corridor', '共用廊下・階段の床', 15, 40], ['pipes', '給排水管・給水ポンプ', 30, 150], ['common_eq', '共用部の照明・インターホン・防犯カメラ', 15, 30],
   ['elevator', 'エレベーター改修(RCでエレベーターがあれば800〜1,200万円)', 25, 0]];
 // 物件の種類を切り替えたときに入れ直す初期値(id または data-k)。東京23区の取引の中央値付近(区分: 20〜30㎡・築15〜25年、1棟: 木造・鉄骨アパート築15〜30年)
+// 物件価格の変動は16都市の回帰の中央値の目安: 築年数による変動は築3〜40年でマンション約−3%/年・戸建約−2%/年(1棟は土地付きなので戸建の値)、
+// 相場は2021年以降の急騰を除いた2013〜2020年でマンション約+5%/年・戸建約+1%/年(マンションは控えめに+3%)
 const SIM_TYPE_DEFAULTS = {
-  unit: { s_price: 2700, s_rent: 87000, management: 7000, property_tax: 5000, insurance: 500, earthquake_insurance: 500, settlement: 5 },
-  bldg: { s_price: 12000, s_rent: 65000, s_units: 8, management: 25000, property_tax: 40000, insurance: 6000, earthquake_insurance: 5000, settlement: 20 },
+  unit: { s_price: 2700, s_rent: 87000, management: 7000, property_tax: 5000, insurance: 500, earthquake_insurance: 500, settlement: 5, s_market: '', s_price_age: -3, s_price_market: 3 },
+  bldg: { s_price: 12000, s_rent: 65000, s_units: 8, management: 25000, property_tax: 40000, insurance: 6000, earthquake_insurance: 5000, settlement: 20, s_market: '', s_price_age: -2, s_price_market: 1 },
 };
 // 種類ごとの表示名。1棟では管理費の枠に共用部の維持費(清掃・共用部の電気水道・法定点検・エレベーター保守など)を入れる
 const simBldg = () => $('s_type').value === 'bldg';
@@ -1516,7 +1571,7 @@ function initSim() {
 }
 function simParams() {
   simApplyType();
-  const q = { price: +$('s_price').value * 1e4, rent_month: +$('s_rent').value, units: simBldg() ? +$('s_units').value : 1, rent_change_pct: +$('s_rent_change').value, price_change_pct: +$('s_price_change').value, rate: +$('s_rate').value, years: +$('s_years').value, down_pct: +$('s_down_pct').value,
+  const q = { price: +$('s_price').value * 1e4, rent_month: +$('s_rent').value, units: simBldg() ? +$('s_units').value : 1, market_value: ($('s_market').value === '' ? +$('s_price').value : +$('s_market').value) * 1e4, rent_change_pct: +$('s_rent_change').value, price_age_pct: +$('s_price_age').value, price_market_pct: +$('s_price_market').value, rate: +$('s_rate').value, years: +$('s_years').value, down_pct: +$('s_down_pct').value,
     brokerage: $('s_brokerage').value === '1', sale_brokerage: $('s_sale_brokerage').value === '1', purchase: {}, running: {}, turnover: {}, risk: {} };
   q.risk = JSON.parse($('s_risk').value);
   const tax = $('s_tax').value;
@@ -1570,7 +1625,7 @@ function simBars(id, income, expense, unit, div) {
     annotations: [label('収入', total(income), fmt(total(income))), label('支出', total(expense), fmt(total(expense))), label('手残り', net, (net >= 0 ? '+' : '−') + fmt(Math.abs(net)))],
     legend: { orientation: 'v', x: 1.02, y: 1, traceorder: 'normal' }, margin: { t: 24, r: 10 } }), CFG);
 }
-const SIM_BASE_COL = 3;  // 表の列のうち、入力した物件価格変動率そのものの列(service.js の SIM_PRICE_OFFSETS の 0)
+const SIM_BASE_COL = 3;  // 表の列のうち、入力した築年数による変動と相場の変動を合成した年率そのものの列(service.js の SIM_PRICE_OFFSETS の 0)
 const pctS = v => (v > 0 ? '+' : v < 0 ? '−' : '±') + Math.abs(v).toFixed(1) + '%';
 let SIM_R, SIM_SEL = [1, SIM_BASE_COL];  // 表で選んだセル(初期は10年後に入力した変動率で売却)
 async function renderSim() {
@@ -1606,7 +1661,12 @@ async function renderSim() {
     $('sim_tax').innerHTML = `<span class="${save(ty) >= 0 ? 'pos' : 'neg'}">${save(ty) >= 0 ? '' : '税金 '}${sv(Math.abs(save(ty)))}</span>`;
     $('sim_tax_n').textContent = `${ty + 1}年目、税率${r.tax.rate_pct}%(月あたり ${yenS(save(ty) / 12)})。1年目は購入時の諸費用も経費になり ${sv(save(0))}` +
       (eqEnd ? `、設備の償却が終わる${eqEnd + 1}年目からは ${sv(save(eqEnd))}` : '') + '。マイナスは黒字で税金がかかる額';
-    const rows = [['家賃収入', j => T.rent[j]], ['経費(ローン元金を除く支出)', j => -(T.management[j] + T.repair[j] + T.rental_mgmt[j] + T.other[j] + T.turnover[j])],
+    // 経費(ローン元金を除く支出)は項目ごとに出す。固定資産税・保険などは毎年同じ額(月額 × 12)で、合計は T.other。全年0の項目は出さない
+    const L = simLabels(), it = k => -r.running.items[k] * 12;
+    const costs = [[L.management, j => -T.management[j]], [L.repair, j => -T.repair[j]], ['賃貸管理手数料', j => -T.rental_mgmt[j]],
+      ['固定資産税・都市計画税', () => it('property_tax')], ['設備交換・修繕費(年平均)', () => it('equipment')],
+      ['火災保険・地震保険', () => it('insurance') + it('earthquake_insurance')], ['税理士費用', () => it('accountant')], ['入れ替え・空室(年平均)', j => -T.turnover[j]]];
+    const rows = [['家賃収入', j => T.rent[j]], ...costs.filter(([, f]) => cols.some(j => f(j) !== 0)).map(([k, f]) => [`経費: ${k}`, f]),
       ['ローン利息', j => -T.interest[j]], [`減価償却 躯体(${r.tax.life}年)`, j => -T.dep_body[j]],
       ...(r.tax.equipment > 0 ? [[`減価償却 設備(${r.tax.equipment_life}年)`, j => -T.dep_equipment[j]]] : []),
       ['購入時の諸費用', j => j === 0 ? -r.tax.expensed : 0], ['土地分の利子(赤字と相殺できない)', j => T.interest_disallowed[j]]];
@@ -1654,10 +1714,10 @@ async function renderSim() {
     renderSim.bound = true;
     $('chart_sim_trend').on('plotly_click', e => { $('s_cf_year').value = e.points[0].x; renderSim(); });
   }
-  $('sim_grid').innerHTML = `<tr><th>売却 \\ 物件価格の変動</th>${r.price_changes.map((c, i) => `<th>${pctS(c)}/年${i === SIM_BASE_COL ? '<br><span class="ns">(入力値)</span>' : ''}</th>`).join('')}</tr>` +
+  $('sim_grid').innerHTML = `<tr><th>売却 \\ 物件価格の変動</th>${r.price_changes.map((c, i) => `<th>${pctS(c)}/年${i === SIM_BASE_COL ? '<br><span class="ns">(入力: 築年数×相場)</span>' : ''}</th>`).join('')}</tr>` +
     r.grid.map((row, h) => `<tr><td>${r.hold_years[h]}年後</td>${row.map((g, c) => {
       const tip = `売却価格 ${man1(g.sale_price)} − 仲介手数料 ${man1(g.sale_cost)} − ローン残高 ${man1(g.balance)}${r.tax ? ' − 譲渡所得税 ' + man1(g.sale_tax) : ''}\n保有中の収支の累計 ${manS(g.cash_flow)}\nイニシャルコスト −${man1(r.initial.total)}`;
-      return `<td data-h="${h}" data-c="${c}" title="${tip}" class="${g.total >= 0 ? 'pos' : 'neg'}"><b>${manS(g.total)}</b><div class="n">年 ${g.irr == null ? '—' : pct(g.irr)}</div><div class="n">売却 ${man1(g.sale_price)}</div>` +
+      return `<td data-h="${h}" data-c="${c}" title="${tip}" class="${g.total >= 0 ? 'pos' : 'neg'}"><b>${manS(g.total)}</b><div class="n">年 ${g.irr == null ? '—' : pct(g.irr)}</div><div class="n">売却 ${man1(g.sale_price)}(${pct(g.sale_price / r.price - 1)})</div>` +
         (hasRisk ? `<div class="n">リスク ${manS(g.total - g.total_base)}</div>` : '') + '</td>';
     }).join('')}</tr>`).join('');
   renderSimTotal();
@@ -1666,7 +1726,7 @@ function renderSimTotal() {
   const r = SIM_R, [h, c] = SIM_SEL, g = r.grid[h][c], ch = r.price_changes[c];
   document.querySelectorAll('#sim_grid td.sel').forEach(e => e.classList.remove('sel'));
   document.querySelector(`#sim_grid td[data-h="${h}"][data-c="${c}"]`).classList.add('sel');
-  $('sim_total_title').textContent = `総収支の内訳(${r.hold_years[h]}年後に売却。物件価格 ${pctS(ch)}/年で${man1(g.sale_price)})`;
+  $('sim_total_title').textContent = `総収支の内訳(${r.hold_years[h]}年後に売却。物件価格 ${pctS(ch)}/年で${man1(g.sale_price)}、購入時から${pct(g.sale_price / r.price - 1)})`;
   $('sim_total').innerHTML = `<span class="${g.total >= 0 ? 'pos' : 'neg'}">${manS(g.total)}</span>`;
   const hasRisk = Object.entries(r.risk).some(([k, v]) => k !== 'rate_rise_years' && v > 0);
   $('sim_total_n').textContent = `年利回り ${g.irr == null ? '—' : pct(g.irr)}。` +
@@ -1863,6 +1923,121 @@ async function renderPopMap() {
     : `${vals.length.toLocaleString()}市区町村のうち、増加 ${up.toLocaleString()}、減少 ${(vals.length - up).toLocaleString()}。` + ` 全国は ${pct(m.nation)}。濃い灰色はデータなし(推計の対象外など)。`;
 }
 
+// 賃貸の空室率(住宅・土地統計調査)。初めて開いたときに読み込む
+let VAC, VAC_MAP, vacLayer;
+const pt = v => v == null ? '—' : (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(1) + 'pt';  // 比率の差(0.01 = 1ポイント)
+const units = v => v == null ? '—' : Math.round(v).toLocaleString() + '戸';
+async function initVacancy() {
+  VAC = true;
+  let c, geo;
+  try { [c, geo] = await Promise.all([api('/api/vacancy-compare', {}), POP_GEO ?? api('/api/population-geo')]); }
+  catch (e) { $('vc_status').textContent = e.message; $('vc_status').className = 'err'; return; }
+  VAC = { cmp: c, geo, values: {} };
+  const opt = code => `<option value="${code}">${c.names[code]}</option>`;
+  $('vc_area').innerHTML = `<optgroup label="全国">${opt(c.nation)}</optgroup><optgroup label="主要都市">${c.rows.slice(1).map(r => opt(r.code)).join('')}</optgroup>` +
+    `<optgroup label="都道府県">${c.prefs.map(opt).join('')}</optgroup><optgroup label="地図で選んだ地域" id="vc_picked"></optgroup>`;
+  $('vc_area').value = '13100';
+  // 地図の表示: 各年の空室率と、2時点の増減(隣り合う年どうしと、最初→最後)
+  const my = c.map_years, pairs = [...my.slice(1).map((y, i) => [my[i], y]), ...(my.length > 2 ? [[my[0], my.at(-1)]] : [])];
+  fillSelect($('vc_view'), [...my.map(y => [y, `${y}年`]), ...pairs.map(([a, b]) => [`${a}-${b}`, `${a}→${b}年(増減)`])], my.at(-1));
+  $('vc_area').addEventListener('change', renderVacArea);
+  $('vc_view').addEventListener('change', renderVacMap);
+  await Promise.all([renderVacMap(), renderVacArea()]);
+  $('chart_vc_compare').on('plotly_click', e => { const code = e.points[0].data.meta; if (code) setVacArea(code); });
+}
+function setVacArea(code) {
+  if (![...$('vc_area').options].some(o => o.value === code)) $('vc_picked').innerHTML += `<option value="${code}">${VAC.cmp.names[code]}</option>`;
+  $('vc_area').value = code;
+  renderVacArea();
+}
+async function renderVacMap() {
+  const [from, to] = $('vc_view').value.split('-').map(Number), change = to != null;
+  let m;
+  try { m = await api('/api/vacancy-map', change ? { metric: 'change', from, to } : { metric: 'rate', year: from }); }
+  catch (e) { $('vc_status').textContent = e.message; $('vc_status').className = 'err'; return; }
+  $('vc_status').textContent = '';
+  VAC.values = m.values;
+  // 色: 空室率は全国の値、増減は変化なしを中心にする。幅は中心からの差の95%点(空室率は5%、増減は1ポイント刻み)で頭打ち
+  const mid = change ? 0 : m.nation, fmt = change ? pt : pct1, step = change ? 100 : 20;
+  const vals = m.map_areas.map(c => m.values[c]).filter(v => v != null);
+  const span = Math.max(1 / step, Math.ceil(quantile95(vals.map(v => Math.abs(v - mid)).sort((a, b) => a - b)) * step) / step);
+  $('vc_map_title').textContent = change ? `賃貸の空室率の増減(${m.from}年→${m.to}年、市区町村)` : `賃貸の空室率(${m.year}年、市区町村)`;
+  $('vc_lo').textContent = `${fmt(mid - span)}以下`;
+  $('vc_hi').textContent = `${fmt(mid + span)}以上`;
+  $('vc_legend_note').textContent = change ? '(灰色 = 変化なし。青が低下、橙が上昇)' : `(灰色 = 全国 ${pct1(mid)}。青は全国より低い、橙は高い)`;
+  if (!VAC_MAP) {
+    // 人口の地図と同じく、ズームのアニメーションを切ってホイール操作に即座に追従させる
+    VAC_MAP = L.map('vc_map', { preferCanvas: true, scrollWheelZoom: true, zoomAnimation: false, wheelDebounceTime: 20, wheelPxPerZoomLevel: 100, zoomSnap: 0.25 }).fitBounds([[29.5, 128.5], [45.6, 146]]);
+    L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png', { maxZoom: 14, opacity: 0.6,
+      attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a>、国土数値情報(行政区域)を加工' }).addTo(VAC_MAP);
+    vacLayer = L.layerGroup().addTo(VAC_MAP);
+    const renderer = L.canvas({ padding: 0.5 });
+    for (const code of m.map_areas) {
+      const poly = L.polygon(VAC.geo[code].map(r => r.map(([x, y]) => [y, x])), { renderer, weight: 0.3, color: '#ffffff', fillOpacity: 0.85 });
+      poly.code = code;
+      poly.on('click', () => { if (code in VAC.values) setVacArea(code); });
+      poly.addTo(vacLayer);
+    }
+  }
+  vacLayer.eachLayer(p => {
+    const v = m.values[p.code];
+    p.setStyle({ fillColor: v == null ? '#bbbbbb' : divergingColor((v - mid) / span) });
+    p.bindTooltip(`${m.names[p.code]}: ${v == null ? 'データなし' : fmt(v)}`, { sticky: true });
+  });
+  const up = vals.filter(v => v > mid).length;
+  $('vc_map_note').textContent = (change
+    ? `${vals.length.toLocaleString()}市区町村のうち、上昇 ${up.toLocaleString()}、低下 ${(vals.length - up).toLocaleString()}。全国は ${pt(m.nation)}。`
+    : `${vals.length.toLocaleString()}市区町村のうち、全国(${pct1(m.nation)})より高いのは ${up.toLocaleString()}。`) + '灰色はデータなし(表に載らない人口の少ない町村など)。';
+}
+async function renderVacArea() {
+  let a;
+  try { a = await api('/api/vacancy-area', { code: $('vc_area').value }); }
+  catch (e) { $('vc_status').textContent = e.message; $('vc_status').className = 'err'; return; }
+  $('vc_status').textContent = '';
+  const r = a.area, ys = a.years, my = VAC.cmp.map_years, at = y => ys.indexOf(y), last = at(my.at(-1));
+  const nation = a.others.find(o => o.code === VAC.cmp.nation);
+  const diff = (i, j) => r.rate[i] == null || r.rate[j] == null ? null : r.rate[j] - r.rate[i];
+  const tile = (k, v, n) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`;
+  $('vc_tiles').innerHTML = [
+    tile(`${r.name}の空室率(${ys[last]}年)`, pct1(r.rate[last]), nation ? `全国 ${pct1(nation.rate[last])}` : '全国'),
+    tile(`${my.at(-2)}年からの増減`, pt(diff(at(my.at(-2)), last)), `${my.at(-2)}年 ${pct1(r.rate[at(my.at(-2))])}`),
+    tile(`${my[0]}年からの増減`, pt(diff(at(my[0]), last)), `${my[0]}年 ${pct1(r.rate[at(my[0])])}`),
+    tile(`賃貸用の空き家(${ys[last]}年)`, units(r.rental_vacant[last]), `借家 ${units(r.rented[last])}`),
+  ].join('');
+  $('vc_trend_title').textContent = `空室率の推移(${r.name})`;
+  const pc = v => v.map(x => x == null ? null : x * 100);
+  const line = (o, main) => ({ x: ys, y: pc(o.rate), mode: 'lines+markers', name: o.name, connectgaps: true,
+    line: { color: css(main ? '--s1' : o.code === VAC.cmp.nation ? '--text2' : '--s3'), width: main ? 3 : 1.8, dash: main ? 'solid' : 'dot' },
+    customdata: o.rental_vacant.map((v, i) => [units(v), units(o.rented[i])]),
+    hovertemplate: `%{y:.1f}%(賃貸用の空き家 %{customdata[0]}、借家 %{customdata[1]})<extra>${o.name}</extra>` });
+  const old = { type: 'rect', xref: 'x', yref: 'paper', x0: ys[0] - 2, x1: a.sale_until + 2.5, y0: 0, y1: 1, fillcolor: css('--grid'), opacity: 0.5, line: { width: 0 }, layer: 'below' };
+  Plotly.react('chart_vc_trend', [...a.others.map(o => line(o, false)), line(r, true)],
+    layout({ xaxis: { dtick: 5, range: [ys[0] - 2, ys.at(-1) + 2] }, yaxis: { ticksuffix: '%', rangemode: 'tozero' }, legend: { y: 1.12 }, margin: { t: 30 }, shapes: [old],
+      annotations: [{ x: (ys[0] + a.sale_until) / 2, yref: 'paper', y: 0.02, text: '売却用の空き家を含む', showarrow: false, font: { size: 11, color: css('--muted') } }] }), CFG);
+  const first = r.rate.findIndex(v => v != null);
+  $('vc_trend_note').textContent = `${r.name}の値は${ys[first]}年から。全国・都道府県・主要都市は1983年から、それ以外の市区町村は${my.join('・')}年の${my.length}時点です。網掛けの期間(${a.sale_until}年以前)は売却用の空き家を含むため、やや高く出ます。`;
+  renderVacCompare();
+}
+function renderVacCompare() {
+  const c = VAC.cmp, hi = $('vc_area').value, order = cityOrder(c), last = c.years.length - 1, i0 = c.years.indexOf(c.map_years[0]);
+  const line = r => {
+    const on = r.code === hi, nation = r.code === c.nation;
+    return { x: c.years, y: r.rate.map(v => v == null ? null : v * 100), meta: r.code, mode: on ? 'lines+markers' : 'lines', name: r.name, legendrank: nation ? 1 : 2 + order.indexOf(r.code),
+      line: { color: cityColor(c, r.code), width: on ? 4.5 : nation ? 2 : 1.6, dash: nation ? 'dash' : 'solid' }, marker: { size: 7 },
+      opacity: on || nation || !c.rows.some(x => x.code === hi) ? 1 : 0.75, hovertemplate: `${r.name} %{x}年: %{y:.1f}%<extra></extra>` };
+  };
+  Plotly.react('chart_vc_compare', [...c.rows.filter(r => r.code !== hi).map(line), ...c.rows.filter(r => r.code === hi).map(line)],
+    layout({ xaxis: { dtick: 5 }, yaxis: { ticksuffix: '%' }, hovermode: 'closest', legend: { orientation: 'v', x: 1.01, y: 1, font: { size: 11 } }, margin: { r: 10 },
+      shapes: [{ type: 'rect', xref: 'x', yref: 'paper', x0: c.years[0] - 1, x1: c.sale_until + 2.5, y0: 0, y1: 1, fillcolor: css('--grid'), opacity: 0.5, line: { width: 0 }, layer: 'below' }] }), CFG);
+  const ty = c.years.filter(y => y > c.sale_until);  // 表は賃貸用だけの年(売却用を含まない年)
+  const rows = c.rows.slice().sort((x, y) => (y.rate[last] ?? -1) - (x.rate[last] ?? -1));
+  $('vc_table').innerHTML = `<tr><th>地域</th>${ty.map(y => `<th>${y}年</th>`).join('')}<th>${c.map_years[0]}年→${c.years[last]}年</th></tr>` +
+    rows.map(r => `<tr data-code="${r.code}" style="cursor:pointer"${r.code === hi ? ' class="hl"' : ''}><td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:${cityColor(c, r.code)}"></span>${r.name}</td>` +
+      ty.map(y => `<td>${pct1(r.rate[c.years.indexOf(y)])}</td>`).join('') +
+      `<td>${r.rate[i0] == null || r.rate[last] == null ? '—' : pt(r.rate[last] - r.rate[i0])}</td></tr>`).join('');
+  for (const tr of document.querySelectorAll('#vc_table tr[data-code]')) tr.onclick = () => setVacArea(tr.dataset.code);
+}
+
 // 長期推移(地価・家賃・物価・金利)。初めて開いたときに読み込む
 let LONG;
 const times = v => v == null ? '—' : v.toFixed(2) + '倍';
@@ -1983,16 +2158,18 @@ async function renderLongRates() {
 // ページ上部の切り替え: 都市ごとの回帰分析 / 全国の相場比較 / 市況 / ローン・金利
 document.querySelectorAll('.tabs.modes button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs.modes button').forEach(x => x.setAttribute('aria-selected', x === b));
-  for (const m of ['city', 'national', 'housing', 'loan', 'sim', 'population', 'long']) $('mode-' + m).hidden = b.dataset.mode !== m;
+  for (const m of ['city', 'national', 'housing', 'loan', 'sim', 'population', 'vacancy', 'long']) $('mode-' + m).hidden = b.dataset.mode !== m;
   if (b.dataset.mode === 'national' && !MARKET) renderMarket();  // 16都市ぶんの回帰を使うので、初めて開いたときに計算する
   if (b.dataset.mode === 'housing' && !HOUSING) initHousing();
   if (b.dataset.mode === 'loan' && !LOAN) initLoan();
   if (b.dataset.mode === 'sim' && !SIM) initSim();
   if (b.dataset.mode === 'population' && !POP) initPopulation();
+  if (b.dataset.mode === 'vacancy' && !VAC) initVacancy();
   if (b.dataset.mode === 'long' && !LONG) initLong();
   window.dispatchEvent(new Event('resize'));
   if (MAP) MAP.invalidateSize();
   if (POP_MAP) POP_MAP.invalidateSize();
+  if (VAC_MAP) VAC_MAP.invalidateSize();
 });
 
 // 都市ごとの分析で選んだ都市・種別を、全国の比較に連動させる(都市は強調表示、種別は集計条件)

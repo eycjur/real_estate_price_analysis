@@ -6,7 +6,7 @@ let loadBytes = async path => {
   return r.arrayBuffer();
 };
 /** テスト用: データの読み込み方を差し替える。fn(path) → ArrayBuffer */
-export function setLoader(fn) { loadBytes = fn; cache.clear(); metaPromise = null; ratesPromise = null; marketPromise = null; loanPromise = null; longPromise = null; popPromise = null; geoPromise = null; }
+export function setLoader(fn) { loadBytes = fn; cache.clear(); metaPromise = null; ratesPromise = null; marketPromise = null; loanPromise = null; longPromise = null; popPromise = null; geoPromise = null; vacancyPromise = null; }
 
 const TYPES = { uint8: Uint8Array, uint16: Uint16Array, uint32: Uint32Array };
 const cache = new Map();
@@ -52,6 +52,12 @@ export function loadPopulation() {
 }
 export function loadBoundaries() {
   return geoPromise ??= loadJson('boundaries.json');
+}
+
+let vacancyPromise = null;
+/** 賃貸の空室率(住宅・土地統計調査の賃貸用の空き家数・借家数、docs/data/vacancy.json)。 */
+export function loadVacancy() {
+  return vacancyPromise ??= loadJson('vacancy.json');
 }
 
 /** 取引データに、回帰で毎回使う対数などの派生列を足す。 */
