@@ -76,6 +76,13 @@ def test_district_l2_matches_dense_ridge():
     assert f.rmse < fit(df, Spec()).rmse  # 地区差のあるデータでは誤差が減る
     unseen = df.head(3).assign(district_key="どこにもない地区")
     np.testing.assert_allclose(f.predict(unseen)[0], f.design.matrix(unseen) @ f.beta)
+    # 実効パラメータ数 k + district_df は、地区ダミーを含めたハット行列のトレースと一致する
+    H = Z @ np.linalg.solve(Z.T @ Z + P, Z.T)
+    assert X.shape[1] + f.district_df == pytest.approx(np.trace(H), rel=1e-8)
+    # 地区を指定した予測の標準誤差は、地区効果の推定誤差 σ·√w_d を含む(件数の少ない地区ほど大きい)
+    se_d = f.predict(df.head(3))[1]
+    w = f.district_w.reindex(df.head(3)["district_key"]).to_numpy()
+    assert np.all(se_d > f.rmse * np.sqrt(w)) and np.all(se_d > f.predict(unseen)[1])
 
 
 def test_perfectly_collinear_columns_are_dropped():

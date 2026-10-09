@@ -103,6 +103,14 @@ a { color: var(--accent); }
 @media (max-width: 760px) { .sim-costs { grid-template-columns: 1fr; } }
 #mode-sim td input[type=number]:disabled { color: var(--muted); background: transparent; cursor: not-allowed; }
 #sim_grid td { vertical-align: top; cursor: pointer; }
+#calc_rates tr[data-rate] { cursor: pointer; }
+/* ? にホバー(またはフォーカス)すると出る説明 */
+.qtip { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border: 1px solid var(--muted); border-radius: 50%;
+  font-size: 11px; line-height: 1; color: var(--muted); cursor: help; vertical-align: 1px; }
+.qtip-body { display: none; font-weight: 400; position: absolute; left: 0; top: calc(100% + 6px); z-index: 10; width: max-content; max-width: min(560px, 80vw); padding: 8px 10px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.15);
+  font-size: 12px; line-height: 1.6; white-space: pre-line; text-align: left; cursor: auto; }
+.qtip:hover .qtip-body, .qtip:focus .qtip-body { display: block; }
 #sim_grid td.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
 #sim_grid td .n { font-size: 11.5px; color: var(--muted); font-weight: 400; }
 tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
@@ -202,7 +210,8 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
       <p class="note" id="coef_note"></p>
     </div>
     <div class="grid2">
-      <div class="panel"><h2>残差の分布(ln価格の実績−推定)</h2><div id="chart_resid" class="chart sm"></div></div>
+      <div class="panel"><h2>残差の分布(ln価格の実績−推定) <span class="qtip" tabindex="0" aria-label="説明">?<span class="qtip-body" role="tooltip">残差 = ln(実績の価格) − ln(推定価格)。
+0.1 なら実績が推定より約10%高く、−0.1 なら約10%低い。0のまわりに細く集まるほど、推定が実績に近い</span></span></h2><div id="chart_resid" class="chart sm"></div></div>
     </div>
   </section>
 
@@ -214,7 +223,8 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
     </div>
     <div class="grid2">
       <div class="panel"><h2>区の人口(実績と推計)</h2><div id="chart_pop" class="chart sm"></div></div>
-      <div class="panel"><h2>人口弾力性の推定</h2><div id="elasticity"></div>
+      <div class="panel"><h2>人口弾力性の推定 <span class="qtip" tabindex="0" aria-label="説明">?<span class="qtip-body" role="tooltip">区の人口が1%変わったとき、価格が何%変わるか(ln(区人口) の係数)。
+0.5 なら、人口が1%増えると価格が約0.5%上がる</span></span></h2><div id="elasticity"></div>
         <p class="note">全都市の取引をプールし、区固定効果と「都市×年」固定効果を入れて ln(区人口) の係数を推定。区内の人口変化と価格変化の対応だけから識別しています。標準誤差は区クラスタ頑健。</p></div>
     </div>
     <div class="panel">
@@ -450,8 +460,8 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
   <div class="panel">
     <h2>固定金利での返済額 <span class="note">— 借入額・金利・返済期間を入れると、月々の返済額と、そのうち利息がいくらかを計算します</span></h2>
     <div class="filters">
-      <label class="f">借入額(万円)<input type="number" id="c_principal" value="4000" min="1" step="100" style="width:100px"></label>
-      <label class="f">金利(年%)<input type="number" id="c_rate" step="0.005" min="0" style="width:90px"></label>
+      <label class="f">借入額(万円)<input type="number" id="c_principal" value="1000" min="1" step="100" style="width:100px"></label>
+      <label class="f">金利(年%)<input type="number" id="c_rate" value="2.6" step="0.005" min="0" style="width:90px"></label>
       <label class="f">返済期間(年)<input type="number" id="c_years" value="35" min="1" max="50"></label>
       <label class="f">返済方式<select id="c_method"><option value="annuity">元利均等(毎月の返済額が一定)</option><option value="principal">元金均等(返済額が徐々に減る)</option></select></label>
       <label class="f">金利を商品から入れる<select id="c_product"></select></label>
@@ -463,6 +473,9 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
         <div id="chart_calc_month" class="chart xs"></div></div>
       <div><h3 class="ch" style="padding:6px 0">総返済額の内訳</h3><div id="chart_calc_total" class="chart xs"></div></div>
     </div>
+    <h3 class="ch" style="margin-top:6px">金利ごとのローン定数と月々の返済の平均 <span class="note">— 借入額・返済期間・返済方式は上の入力の値。太字は入力した金利。行をクリックするとその金利に切り替え</span></h3>
+    <div class="tblwrap"><table id="calc_rates"></table></div>
+    <p class="note">ローン定数 = 年間の返済額 ÷ 借入額(元金均等では返済期間を通した平均)。平均利息率 = 利息の合計 ÷ 返済期間(年) ÷ 借入額で、ローン定数のうち利息の分(残りは元金の返済)。残高が減るぶん金利より低くなります。この値が物件の利回り(NOI ÷ 物件価格)より高いと、借りるほど手残りが減ります。年間の平均 = 総返済額 ÷ 返済期間(年)。月々の平均 = 総返済額・元金・利息の合計 ÷ 返済回数。</p>
     <h3 class="ch" style="margin-top:6px">年ごとの元金と利息 <span class="note">— 棒をクリックすると、その年の月々の内訳を上の円グラフに表示</span></h3>
     <div id="chart_calc" class="chart sm"></div>
     <p class="note">返済額は1円未満も含めて計算した値です(実際の返済額は金融機関の端数処理で数円ずれます)。団信・保証料・手数料、金利の見直しは含みません。</p>
@@ -506,6 +519,7 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
       <label class="f" id="s_repair_wrap">修繕積立金(円/月)<input type="number" data-g="running" data-k="repair_reserve" value="8000" min="0" step="500" style="width:90px"></label>
       <label class="f">賃貸管理手数料(家賃の%)<input type="number" data-g="running" data-k="rental_mgmt_pct" value="4" min="0" max="100" step="0.5"></label>
     </div>
+    <p class="note" id="sim_gross"></p>
     <div class="filters" style="margin-top:10px">
       <label class="f">ローン金利(年%)<input type="number" id="s_rate" value="2.6" min="0" step="0.05"></label>
       <label class="f">返済期間(年)<input type="number" id="s_years" value="35" min="1" max="50"></label>
@@ -531,7 +545,7 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
         <option value="">含めない</option>
         <option value="20">含める: 税率20%(課税所得195〜330万円)</option>
         <option value="30">含める: 税率30%(330〜695万円)</option>
-        <option value="33">含める: 税率33%(695〜900万円)</option>
+        <option value="33" selected>含める: 税率33%(695〜900万円)</option>
         <option value="43">含める: 税率43%(900〜1,800万円)</option>
         <option value="50">含める: 税率50%(1,800〜4,000万円)</option>
       </select></label>
@@ -562,10 +576,12 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
             <div class="note" id="sim_equip_n">専有部の設備を寿命ごとに交換する費用(工事費込みの目安)を年あたりにならした額。設備がない・賃借人負担の項目は0にします</div></details></details></div>
     </div>
     <div class="panel" id="sim_tax_card" style="grid-column:1/-1" hidden>
-      <div class="filters" style="align-items:center;gap:10px"><h2 style="margin:0">節税効果(年)</h2>
+      <div class="filters" style="align-items:center;gap:10px"><h2 style="margin:0">節税効果(年) <span class="qtip" tabindex="0" aria-label="説明">?<span class="qtip-body" role="tooltip">不動産所得(家賃 − 経費 − 減価償却)が赤字なら、給与などの所得と相殺して戻る税金(赤字 × 税率)。
+黒字の年はマイナスで、税金がかかる額</span></span></h2>
         <label class="f" style="flex-direction:row;align-items:center;gap:6px"><input type="number" id="s_tax_year" value="2" min="1" max="50" style="width:64px">年目</label></div><div class="bigv" id="sim_tax"></div><div class="note" id="sim_tax_n"></div>
       <details id="sim_tax_details"><summary>内訳(不動産所得の計算)</summary><div class="tblwrap"><table id="sim_tax_table"></table></div>
-        <h3 class="ch" style="margin-top:10px">年ごとの節税効果 <span class="note">— マイナスは黒字で税金がかかる年</span></h3><div id="chart_sim_tax" class="chart xs"></div></details></div>
+        <h3 class="ch" style="margin-top:10px">年ごとの節税効果 <span class="note">— マイナスは黒字で税金がかかる年</span></h3><div id="chart_sim_tax" class="chart xs"></div></details>
+      <h3 class="ch" style="margin-top:10px">売却する年ごとの節税額の合計と売却時の税額</h3><div class="tblwrap"><table id="sim_tax_sale"></table></div><div class="note" id="sim_tax_sale_n"></div></div>
   </div>
   <div class="panel">
     <div class="filters" style="align-items:center;gap:10px"><h2 style="margin:0">毎月の収支</h2>
@@ -577,7 +593,8 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
     </div>
   </div>
   <div class="panel">
-    <h2>売却したときの総収支と年利回り <span class="note">— 上段: 総収支(購入から売却までの手元のお金の増減)、中段: 自己資金に対する年利回り(IRR)と売却価格、下段: リスクによる差。列は物件価格の年あたりの変動率で、入力値の前後も並べます。セルをクリックすると下のグラフに内訳を表示</span></h2>
+    <h2>売却したときの総収支と年利回り <span class="qtip" tabindex="0" aria-label="説明">?<span class="qtip-body" role="tooltip">年利回り(IRR、内部収益率): 購入時の自己資金を0年目の支出、毎年の収支と売却代金の手取りを収入とみたときの、年あたりの複利の利回り。
+預金や株の利回りと比べられる</span></span> <span class="note">— 上段: 総収支(購入から売却までの手元のお金の増減)、中段: 自己資金に対する年利回り(IRR)と売却価格、下段: リスクによる差。列は物件価格の年あたりの変動率で、入力値の前後も並べます。セルをクリックすると下のグラフに内訳を表示</span></h2>
     <div class="tblwrap"><table id="sim_grid"></table></div>
   </div>
   <div class="panel">
@@ -596,8 +613,8 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
       <li>毎月の収支 = 家賃 − ランニングコスト − 入れ替えのコスト(年平均の12分の1) − ローン返済(利息+元金)。元金の返済は支出ですが、ローン残高が減るぶん売却時の手取りが増えます。</li>
       <li>入れ替えのコストは、1回あたりの費用(原状回復などの定額 + 広告料・仲介・フリーレント・空室期間の家賃)を、入れ替えの頻度で割って毎年ならしています。家賃は毎年、入力した家賃の変動率で変わります(初期値の−1%/年は、令和5年住宅・土地統計調査の建築時期別の民営借家の1畳当たり家賃が築5〜47年で年約1.2%低いことからの目安)。家賃が下がると、賃貸管理手数料と家賃何か月分の費用も下がります。</li>
       <li>売却価格 = 市場価値 × {(1 + 相場の変動) × (1 + 築年数による変動)}^保有年数。市場価値は、相場より安く(高く)買えた物件の本来の価格で、空欄なら物件価格と同じです。購入時の費用・ローン・取得費は物件価格で計算します。表の売却価格の後ろの%は、物件価格(購入価格)からの増減です。表の列は、この合成した年率に −2〜+1% の幅を足したものです。初期値は「都市ごとの分析」と同じ回帰を16都市で推定した中央値の目安で、築年数による変動は新築直後(築0〜2年で2割前後下がる)を除いた築3〜40年でマンション年約−3%・戸建年約−2%(1棟は土地付きなので戸建の値)、相場の変動は2021年以降の急騰を除いた2013〜2020年でマンション年約+5%・戸建年約+1%です(マンションは控えめに+3%)。<br>総収支 = −イニシャルコスト + 保有中の毎年の収支の累計 + (売却価格 − 売却時の仲介手数料 − ローン残高)。年利回りは、購入時の自己資金と毎年の収支・売却代金を年単位のキャッシュフローとみた内部収益率です。売却代金で残債を返しきれず、最後まで支出しかない場合などは求まらないため「—」になります。</li>
-      <li>税金を含めると、毎年の不動産所得(家賃 − 経費 − 減価償却)に税率を掛けた所得税・住民税を差し引きます。赤字なら給与などの所得と相殺して戻る税金を「節税」として足します(他の所得が十分あり、同じ税率がかかる前提)。経費はローン元金以外の支出で、1年目は購入時の諸費用(仲介手数料を除く)も経費にします。赤字のとき、土地の取得に充てた借入金の利子は相殺できません(借入金はまず建物に充てたとみなします)。</li>
-      <li>減価償却は建物部分(取得費 × 建物の割合)の定額法で、耐用年数は選んだ構造の法定耐用年数(RC・SRC 47年、重量鉄骨 34年、木造 22年など)をもとにした中古の簡便法((法定 − 築年数) + 築年数 × 20%、法定耐用年数を過ぎていれば法定の20%)。建物のうち設備(電気・給排水・ガス設備など)の割合を選ぶと、その部分は設備の法定耐用年数15年をもとにした簡便法で償却します(築15年以上なら3年)。償却の総額は同じで、前倒しになるぶん早い時期の税金が減ります。区分マンションの契約書には設備の内訳がないことが多く、実際の申告では割合に合理的な根拠が必要です。</li>
+      <li>税金を含めると、毎年の不動産所得(家賃 − 経費 − 減価償却)に税率を掛けた所得税・住民税を差し引きます。赤字なら給与などの所得と相殺して戻る税金を「節税」として足します(他の所得が十分あり、同じ税率がかかる前提)。経費はローン元金以外の支出で、1年目は購入時の諸費用(仲介手数料を除く)も経費にします。設備交換・修繕費は年平均にならした額をそのまま毎年の経費にしていますが、実際の申告では交換した年の経費、または資産として計上して減価償却(資本的支出)になるため、年ごとの税額は目安です。赤字のとき、土地の取得に充てた借入金の利子は相殺できません(借入金はまず建物に充てたとみなします)。</li>
+      <li>減価償却は建物部分(取得費 × 建物の割合)の定額法(毎年 取得費 × 耐用年数ごとの償却率。31年なら0.033)で、耐用年数は選んだ構造の法定耐用年数(RC・SRC 47年、重量鉄骨 34年、木造 22年など)をもとにした中古の簡便法((法定 − 築年数) + 築年数 × 20%、法定耐用年数を過ぎていれば法定の20%)。建物のうち設備(電気・給排水・ガス設備など)の割合を選ぶと、その部分は設備の法定耐用年数15年をもとにした簡便法で償却します(築15年以上なら3年)。償却の総額は同じで、前倒しになるぶん早い時期の税金が減ります。区分マンションの契約書には設備の内訳がないことが多く、実際の申告では割合に合理的な根拠が必要です。</li>
       <li>売却時は、譲渡所得 = 売却価格 − 仲介手数料 − (取得費 − 減価償却の累計) に、保有5年超は20.315%、5年以下は39.63%を掛けた譲渡所得税を引きます。減価償却で毎年の税金が減ったぶん、売却時の譲渡所得が大きくなります。所有期間は実際には売却した年の1月1日時点で判定するため、6年目に売っても短期になることがあります。</li>
       <li>リスクの項目以外の費用は全期間一定で、大規模修繕の一時金は含みません。</li>
     </ul>
@@ -765,6 +782,16 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
 const $ = id => document.getElementById(id);
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const yen = v => v >= 1e8 ? (v / 1e8).toFixed(2) + '億円' : Math.round(v / 1e4).toLocaleString() + '万円';
+// ? にホバー(またはフォーカス)すると説明を出す。t は改行(\n)で行を分けられる
+const qtip = t => ` <span class="qtip" tabindex="0" aria-label="説明">?<span class="qtip-body" role="tooltip">${t}</span></span>`;
+// 説明が画面の右端からはみ出すときは、はみ出したぶん左へずらす
+for (const ev of ['mouseover', 'focusin']) document.addEventListener(ev, e => {
+  const body = e.target.closest?.('.qtip')?.querySelector('.qtip-body');
+  if (!body) return;
+  body.style.left = '0';
+  const over = body.getBoundingClientRect().right - (document.documentElement.clientWidth - 8);
+  if (over > 0) body.style.left = -over + 'px';
+});
 const pct = (v, d = 1) => (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(d) + '%';
 const FIT_IDS = ['city', 'kind', 'year_from', 'year_to'];
 const MARKET_IDS = ['m_region', 'm_kind', 'm_area_min', 'm_area_max', 'm_age_min', 'm_age_max', 'm_station_max', 'm_year_from', 'm_year_to'];
@@ -854,8 +881,11 @@ async function refit() {
   const my = ++seq;
   $('status').textContent = '推定中…'; $('status').className = 'note';
   try {
-    FIT = await api('/api/fit', fitParams());
-    if (my !== seq) return;
+    const f = await api('/api/fit', fitParams());
+    if (my !== seq) return;  // 後から出したリクエストの結果を、先に出した古い結果で上書きしない
+    FIT = f;
+    // 取引年の選択肢は推定に使った年だけにする(期間外の年は取引年の効果がなく、基準年の価格になってしまう)
+    fillSelect($('p_year'), f.years.slice().reverse().map(y => [y, y + '年']), $('p_year').value);
     $('status').textContent = '';
     renderFit();
     renderMap();
@@ -1200,9 +1230,10 @@ async function renderRates() {
 // 立地マップ: 地区の代表点に、区効果+地区効果(基準の区の平均との価格差)を色で示す。タブを開いたときだけ取得する
 let MAP, mapLayer;
 const DIVERGING = [[31, 95, 176], [127, 168, 221], [214, 212, 204], [240, 162, 126], [200, 69, 26]];  // 青 - 灰 - 橙
-function divergingColor(t) {  // t: -1〜1
+const POP_CHANGE_COLORS = [[20, 70, 160], [65, 132, 218], [214, 212, 204], [237, 121, 69], [184, 52, 12]];  // 人口増減率: 透過しても増減を見分けやすい青・橙
+function divergingColor(t, colors = DIVERGING) {  // t: -1〜1
   const x = (Math.max(-1, Math.min(1, t)) + 1) * 2, i = Math.min(3, Math.floor(x)), f = x - i;
-  return 'rgb(' + DIVERGING[i].map((c, k) => Math.round(c + (DIVERGING[i + 1][k] - c) * f)).join(',') + ')';
+  return 'rgb(' + colors[i].map((c, k) => Math.round(c + (colors[i + 1][k] - c) * f)).join(',') + ')';
 }
 let MAPDATA;
 async function renderMap() {
@@ -1345,7 +1376,10 @@ async function renderHousing() {
       <td>${r.region}${r.note ? `<span class="ns" style="font-size:11px"> (${r.note.length > 22 ? r.note.slice(0, 22) + '…' : r.note})</span>` : ''}</td>
       <td>${r.sold.toLocaleString()}</td><td>${r.new.toLocaleString()}</td><td>${r.stock.toLocaleString()}</td><td>${pct1(r.contract_rate)}</td><td>${r.months_of_stock.toFixed(1)}か月</td>
       <td>${priceText(r.price)}</td><td>${r.price_yoy == null ? '—' : pct(r.price_yoy)}</td></tr>`).join('');
-  for (const tr of document.querySelectorAll('#h_region_table tr[data-region]')) tr.onclick = () => { $('h_region').value = tr.dataset.region; renderHousing(); };
+  for (const tr of document.querySelectorAll('#h_region_table tr[data-region]')) tr.onclick = () => {
+    // プルダウンで選んだときと同じ処理(使えない価格帯の解除を含む)を通す
+    $('h_region').value = tr.dataset.region; $('h_region').dispatchEvent(new Event('change'));
+  };
 }
 async function renderHousingNational() {
   let n;
@@ -1380,10 +1414,10 @@ async function initLoan() {
   const bestFloat = hp.filter(p => p.rate_type === '変動').reduce((a, b) => b.rate_min < a.rate_min ? b : a);
   const flat35 = hp.find(p => p.product.startsWith('フラット35'));
   const sh = l.rate_type_share, last = sh.survey.length - 1;
-  const tile = (k, v, n) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`;
+  const tile = (k, v, n, t) => `<div class="tile"><div class="k">${k}${t ? qtip(t) : ''}</div><div class="v">${v}</div><div class="n">${n}</div></div>`;
   $('loan_tiles').innerHTML = [
-    tile('政策金利(基準貸付利率)', L.policy_rate.value.toFixed(2) + '%', ym(L.policy_rate.month)),
-    tile('短期プライムレート', L.prime_short.value.toFixed(3) + '%', `変動の基準。店頭の目安 ${L.float_store.value.toFixed(3)}%`),
+    tile('政策金利(基準貸付利率)', L.policy_rate.value.toFixed(2) + '%', ym(L.policy_rate.month), '日本銀行が金融機関に資金を貸すときの金利(補完貸付制度の基準貸付利率)。\n短期の市場金利の上限になる'),
+    tile('短期プライムレート', L.prime_short.value.toFixed(3) + '%', `変動の基準。店頭の目安 ${L.float_store.value.toFixed(3)}%`, '銀行が信用の高い企業に1年未満で貸すときの最優遇の金利。\n住宅ローンの変動金利の店頭金利は、短プラ + 1% が慣行'),
     tile('10年国債利回り', L.jgb10.value.toFixed(3) + '%', `固定の基準(${ym(L.jgb10.month)}平均)`),
     tile('変動(優遇後の例)', bestFloat.rate_min.toFixed(3) + '%', `${bestFloat.bank}(${bestFloat.as_of})`),
     tile('フラット35(最頻)', flat35.rate_min.toFixed(3) + '%', `全期間固定・21〜35年(${flat35.as_of})`),
@@ -1430,9 +1464,13 @@ async function initLoan() {
 
   // 返済額の計算: 金利は商品の一覧から選ぶか、手で入れる
   fillSelect($('c_product'), [['', '(手で入力)'], ...l.products.map((p, i) => [i, `${p.bank} ${p.product}(${p.rate_type}) ${p.rate_min.toFixed(3)}%`])]);
-  $('c_rate').value = flat35.rate_min; $('c_product').value = l.products.indexOf(flat35);
   $('c_product').addEventListener('change', () => { if ($('c_product').value !== '') { $('c_rate').value = l.products[+$('c_product').value].rate_min; renderCalc(); } });
   $('c_rate').addEventListener('input', () => { $('c_product').value = ''; });
+  // 金利ごとの表の行をクリックすると、その金利で計算し直す
+  $('calc_rates').addEventListener('click', e => {
+    const tr = e.target.closest('tr[data-rate]');
+    if (tr) { $('c_rate').value = tr.dataset.rate; $('c_product').value = ''; renderCalc(); }
+  });
   for (const id of [...CALC_IDS, 'c_year']) $(id).addEventListener('change', renderCalc);
   renderCalc();
   $('r_float_rate').value = bestFloat.rate_min; $('r_fixed_rate').value = flat35.rate_min;
@@ -1475,6 +1513,16 @@ async function renderCalc() {
     { x: c.yearly.year, y: c.yearly.balance.map(v => v / 1e4), mode: 'lines', yaxis: 'y2', name: '年末の残高(右軸)', line: { color: css('--muted'), width: 2, dash: 'dot' }, hovertemplate: '%{y:,.0f}万円<extra>残高</extra>' },
   ], layout({ barmode: 'stack', xaxis: { title: { text: '返済年数' } }, yaxis: { title: { text: '年間の返済額(万円)' }, tickformat: ',' },
     yaxis2: { overlaying: 'y', side: 'right', showgrid: false, tickformat: ',', title: { text: '残高(万円)' }, rangemode: 'tozero' }, legend: { y: 1.15 }, margin: { t: 30, r: 60 } }), CFG);
+  // 金利ごと(0〜5%の0.5%刻みと入力した金利)のローン定数と、返済期間を通した月々の平均の内訳
+  const rates = [...new Set([...Array.from({ length: 11 }, (_, k) => k * 0.5), c.rate])].sort((a, b) => a - b);
+  const cs = await Promise.all(rates.map(rate => rate === c.rate ? c : api('/api/loan-calc', { principal: c.principal, rate, years: c.years, method: c.method })));
+  const nm = Math.round(c.years * 12);
+  $('calc_rates').innerHTML = `<tr><th>金利</th><th>ローン定数${qtip('年間の返済額 ÷ 借入額(元金均等では返済期間を通した平均)。\n物件の実質利回りがこれより低いと、借りるほど毎年の手残りが減る')}</th><th>平均利息率${qtip('利息の合計 ÷ 返済期間(年) ÷ 借入額。ローン定数のうち利息の分で、残りは元金の返済。\n残高が減るぶん金利より低い')}</th><th>年間の返済額(平均)</th><th>月々の返済額(平均)</th><th>うち元金</th><th>うち利息</th><th>利息の合計</th></tr>` +
+    cs.map(x => {
+      const td = v => x === c ? `<td><b>${v}</b></td>` : `<td>${v}</td>`;
+      return `<tr data-rate="${x.rate}">${td(x.rate.toFixed(3).replace(/\.?0+$/, '') + '%')}${td((x.total_payment / x.years / x.principal * 100).toFixed(2) + '%')}${td((x.total_interest / x.years / x.principal * 100).toFixed(2) + '%')}${td(yenM(x.total_payment / x.years))}${td(yenM(x.total_payment / nm))}` +
+        `${td(yenM(x.principal / nm))}${td(yenM(x.total_interest / nm))}${td(man0(x.total_interest))}</tr>`;
+    }).join('');
   if (!renderCalc.bound) {
     renderCalc.bound = true;
     $('chart_calc').on('plotly_click', e => { $('c_year').value = e.points[0].x; renderCalc(); });
@@ -1488,14 +1536,15 @@ async function renderRepayment() {
   catch (e) { $('loan_status').textContent = e.message; $('loan_status').className = 'err'; return; }
   $('loan_status').textContent = '';
   const f = r.float, man0 = v => Math.round(v / 1e4).toLocaleString() + '万円', yenM = v => Math.round(v).toLocaleString() + '円';
-  const tile = (k, v, n) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`;
+  const tile = (k, v, n, t) => `<div class="tile"><div class="k">${k}${t ? qtip(t) : ''}</div><div class="v">${v}</div><div class="n">${n}</div></div>`;
   $('repay_tiles').innerHTML = [
     tile('変動 当初の月返済', yenM(f.payment[0]), `最大 ${yenM(Math.max(...f.payment))}(金利 ${Math.max(...f.rate).toFixed(2)}%)`),
     tile('固定 月返済', yenM(r.fixed.payment), `金利 ${r.fixed.rate.toFixed(3)}%`),
     tile('総返済額 変動(上昇シナリオ)', man0(f.total), `金利が上がらなければ ${man0(r.float_flat.total)}`),
     tile('総返済額 固定', man0(r.fixed.total), `差 ${(f.total - r.fixed.total >= 0 ? '+' : '−') + man0(Math.abs(f.total - r.fixed.total))}(変動 − 固定)`),
     tile('固定と総返済が並ぶ上昇幅', r.breakeven_rise == null ? '2%/年超' : r.breakeven_rise.toFixed(2) + '%/年',
-      `${r.rise_years}年間上がり続けた場合(累計 ${r.breakeven_rise == null ? '—' : '+' + (r.breakeven_rise * r.rise_years).toFixed(2) + '%'})`),
+      `${r.rise_years}年間上がり続けた場合(累計 ${r.breakeven_rise == null ? '—' : '+' + (r.breakeven_rise * r.rise_years).toFixed(2) + '%'})`,
+      '変動金利が毎年この幅で上がり続けると、変動の総返済額が全期間固定と同じになる。\n実際の上昇がこれより小さければ変動、大きければ固定のほうが総返済額は少ない(0〜2%/年の範囲で探す)'),
   ].join('');
   Plotly.react('chart_repay', [
     { x: f.year, y: f.payment, mode: 'lines', line: { shape: 'hv', color: css('--s1'), width: 2.5 }, name: '変動 月返済(左軸)', customdata: f.rate, hovertemplate: '%{x}年目: %{y:,.0f}円(金利 %{customdata:.2f}%)<extra></extra>' },
@@ -1633,6 +1682,20 @@ async function renderSim() {
   try { r = await api('/api/cashflow', simParams()); }
   catch (e) { $('sim_status').textContent = e.message; $('sim_status').className = 'err'; return; }
   SIM_R = r;
+  const rentYear = +$('s_rent').value * 12 * (simBldg() ? +$('s_units').value : 1);
+  // 実質利回り = (年間の家賃 − ランニングコスト − 入れ替えのコスト(年平均)) ÷ (物件価格 + 購入時の諸費用)。
+  // ローン込みの利回り = (その額 − ローン返済(利息+元金)) ÷ 物件価格、または ÷ 自己資金(頭金 + 購入時の諸費用)。どれも1年目の額で、税金は含まない
+  const noi = rentYear - r.running.month * 12 - r.turnover.year, loanPay = r.yearly.interest[0] + r.yearly.principal[0];
+  const yp = v => `${(v * 100).toFixed(2)}%`;
+  // 利回りごとに ? を付け、ホバーで計算式を出す。値はすべて数値から作った文字列
+  const yt = t => qtip(t + '\n1年目の額で、税金は含まない');
+  const after = noi - loanPay, after_t = `(家賃 − ランニングコスト − 入れ替えのコスト − ローン返済) ${man1(after)}`;
+  $('sim_gross').innerHTML = [
+    `表面利回り ${yp(rentYear / r.price)}${yt(`年間の家賃 ${man1(rentYear)} ÷ 物件価格 ${man1(r.price)}`)}`,
+    `実質利回り ${yp(noi / (r.price + r.initial.costs))}${yt(`(家賃 − ランニングコスト − 入れ替えのコスト) ${man1(noi)}\n÷ (物件価格 + 購入時の諸費用) ${man1(r.price + r.initial.costs)}`)}`,
+    `ローン込みの利回り 物件価格比 ${yp(after / r.price)}${yt(`${after_t}\n÷ 物件価格 ${man1(r.price)}\nローン返済 ${man1(loanPay)} は利息と元金`)}`,
+    `自己資金比 ${yp(after / r.initial.total)}${yt(`${after_t}\n÷ 自己資金(頭金 + 購入時の諸費用) ${man1(r.initial.total)}`)}`,
+  ].join('・');
   $('sim_status').textContent = ''; $('sim_status').className = 'note';
   const out = (key, text) => { const e = document.querySelector(`#mode-sim [data-o="${key}"]`); if (e) e.textContent = text; };
   for (const [k, v] of Object.entries(r.initial.items)) out('purchase.' + k, man1(v));
@@ -1680,6 +1743,14 @@ async function renderSim() {
       { x: xT, y: sT, type: 'bar', name: '節税効果', marker: { color: sT.map(v => css(v >= 0 ? '--s3' : '--hl-text')), opacity: xT.map(v => v === ty + 1 ? 1 : 0.6) }, hovertemplate: '%{x}年目: %{y:,.1f}万円<extra>節税効果</extra>' },
       { x: xT, y: T.depreciation.slice(0, nT).map(v => v / 1e4), mode: 'lines', name: '減価償却', line: { color: css('--text2'), width: 1.5, dash: 'dot', shape: 'hv' }, hovertemplate: '%{y:,.1f}万円<extra>減価償却</extra>' },
     ], layout({ xaxis: { title: { text: '保有年数' } }, yaxis: { title: { text: '万円/年' }, tickformat: ',', zeroline: true, zerolinecolor: css('--text2') }, legend: { y: 1.2 }, margin: { t: 30, l: 50, r: 10 } }), CFG);
+    // 売却する年ごと(総収支の表と同じ年)の、保有中の節税額の合計と譲渡所得税。物件価格は入力した変動率の列
+    const G = r.grid.map(row => row[SIM_BASE_COL]);
+    $('sim_tax_sale').innerHTML = `<tr><th>売却</th>${r.hold_years.map(h => `<th>${h}年後</th>`).join('')}</tr>` +
+      `<tr><td>節税額の合計(保有中)</td>${G.map(g => `<td class="${g.income_tax <= 0 ? 'pos' : 'neg'}">${sv(-g.income_tax)}</td>`).join('')}</tr>` +
+      `<tr><td>売却時の譲渡所得税</td>${G.map((g, k) => `<td>${man1(g.sale_tax)} <span class="note">(${r.hold_years[k] > 5 ? '20.315' : '39.63'}%)</span></td>`).join('')}</tr>` +
+      `<tr class="total"><td>差し引き(節税額 − 譲渡所得税)</td>${G.map(g => `<td class="${-g.income_tax - g.sale_tax >= 0 ? 'pos' : 'neg'}">${sv(-g.income_tax - g.sale_tax)}</td>`).join('')}</tr>` +
+      `<tr><td>売却価格</td>${G.map(g => `<td>${man1(g.sale_price)}</td>`).join('')}</tr>`;
+    $('sim_tax_sale_n').textContent = `物件価格が ${pctS(r.price_change)}/年(入力した築年数×相場)で変わる場合。譲渡所得税は (売却価格 − 仲介手数料 − (取得費 − 減価償却の累計)) × 税率(保有5年以下 39.63%、5年超 20.315%)。差し引きがプラスなら、税金の面で得する額。マイナスの節税額は黒字で税金がかかった額`;
     if (!renderSim.taxBound) {
       renderSim.taxBound = true;
       $('chart_sim_tax').on('plotly_click', e => { $('s_tax_year').value = e.points[0].x; renderSim(); });
@@ -1883,7 +1954,7 @@ function highlightCompare() {
 async function renderPopMap() {
   const share = $('pp_metric').value === 'share';
   $('pp_from_wrap').hidden = $('pp_to_wrap').hidden = share; $('pp_year_wrap').hidden = !share;
-  if (share && $('pp_group').value === 'all') $('pp_group').value = 'elderly';  // 割合は年齢層を選んで表示
+  if (share && $('pp_group').value === 'all') { $('pp_group').value = 'elderly'; renderPopCompare(); }  // 割合は年齢層を選んで表示。都市の比較も同じ年齢層にそろえる
   let m;
   try { m = await api('/api/population-map', { metric: $('pp_metric').value, from: +$('pp_from').value, to: +$('pp_to').value, year: +$('pp_year').value, sex: $('pp_sex').value, group: $('pp_group').value }); }
   catch (e) { $('pp_status').textContent = e.message; $('pp_status').className = 'err'; return; }
@@ -1893,6 +1964,8 @@ async function renderPopMap() {
   const mid = $('pp_center').value === 'nation' ? m.nation : 0, fmt = share ? pct1 : pct;
   const dev = m.map_areas.map(c => m.values[c]).filter(v => v != null).map(v => Math.abs(v - mid)).sort((a, b) => a - b);
   const span = Math.max(0.05, Math.ceil(quantile95(dev) * 20) / 20);
+  const colors = share ? DIVERGING : POP_CHANGE_COLORS;
+  document.querySelector('#mode-population .maplegend .bar').style.background = `linear-gradient(90deg, ${colors.map(c => `rgb(${c.join(',')})`).join(',')})`;
   $('pp_map_title').textContent = share ? `${groupText}(${sexText})の割合(${m.year}年、市区町村)` : `人口の増減率(${sexText}・${groupText}、${m.from}年→${m.to}年、市区町村)`;
   $('pp_lo').textContent = `${fmt(mid - span)}以下`;
   $('pp_hi').textContent = `${fmt(mid + span)}以上`;
@@ -1906,7 +1979,7 @@ async function renderPopMap() {
     popLayer = L.layerGroup().addTo(POP_MAP);
     const renderer = L.canvas({ padding: 0.5 });
     for (const code of m.map_areas) {
-      const poly = L.polygon(POP_GEO[code].map(r => r.map(([x, y]) => [y, x])), { renderer, weight: 0.3, color: '#ffffff', fillOpacity: 0.85 });
+      const poly = L.polygon(POP_GEO[code].map(r => r.map(([x, y]) => [y, x])), { renderer, weight: 0.3, color: '#ffffff', fillOpacity: 0.45 });
       poly.code = code;
       poly.on('click', () => pickPopArea(code));
       poly.addTo(popLayer);
@@ -1914,7 +1987,7 @@ async function renderPopMap() {
   }
   popLayer.eachLayer(p => {
     const v = m.values[p.code];
-    p.setStyle({ fillColor: v == null ? '#bbbbbb' : divergingColor((v - mid) / span) });
+    p.setStyle({ fillColor: v == null ? '#bbbbbb' : divergingColor((v - mid) / span, colors) });
     p.bindTooltip(`${m.names[p.code]}: ${v == null ? 'データなし' : share ? pct1(v) : pct(v)}`, { sticky: true });
   });
   const vals = m.map_areas.map(c => m.values[c]).filter(v => v != null), up = vals.filter(v => v > (share ? m.nation : 0)).length;
@@ -1973,7 +2046,7 @@ async function renderVacMap() {
     vacLayer = L.layerGroup().addTo(VAC_MAP);
     const renderer = L.canvas({ padding: 0.5 });
     for (const code of m.map_areas) {
-      const poly = L.polygon(VAC.geo[code].map(r => r.map(([x, y]) => [y, x])), { renderer, weight: 0.3, color: '#ffffff', fillOpacity: 0.85 });
+      const poly = L.polygon(VAC.geo[code].map(r => r.map(([x, y]) => [y, x])), { renderer, weight: 0.3, color: '#ffffff', fillOpacity: 0.45 });
       poly.code = code;
       poly.on('click', () => { if (code in VAC.values) setVacArea(code); });
       poly.addTo(vacLayer);
@@ -2170,6 +2243,7 @@ document.querySelectorAll('.tabs.modes button').forEach(b => b.onclick = () => {
   if (MAP) MAP.invalidateSize();
   if (POP_MAP) POP_MAP.invalidateSize();
   if (VAC_MAP) VAC_MAP.invalidateSize();
+  history.replaceState(null, '', b.dataset.mode === 'city' ? location.pathname + location.search : '#' + b.dataset.mode);  // 再読み込みしても同じタブを開く
 });
 
 // 都市ごとの分析で選んだ都市・種別を、全国の比較に連動させる(都市は強調表示、種別は集計条件)
@@ -2287,6 +2361,8 @@ document.querySelectorAll('.tabs:not(.modes) button').forEach(b => b.onclick = (
   $('vary').addEventListener('change', renderProfile);
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', refit);
   refit();
+  // URL の #タブ名 で開いたら、そのタブを表示する
+  document.querySelector(`.tabs.modes button[data-mode="${location.hash.slice(1)}"]`)?.click();
 })();
 </script>
 </body>

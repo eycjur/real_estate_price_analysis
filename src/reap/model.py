@@ -225,7 +225,9 @@ class Fit:
     mae: float
     se_type: str
     district_effects: pd.Series | None = None  # 地区キー → γ
-    district_df: float = 0.0  # 地区効果の実効自由度 Σ n_d/(n_d+λ)
+    district_df: float = 0.0  # 地区効果の実効自由度(ハット行列のトレースのうち、説明変数の数 k を除いた分)
+    district_x: pd.DataFrame | None = None  # 地区キー → w_d·Σx_d(γ_d = w_d·Σy_d − この行 @ β)
+    district_w: pd.Series | None = None  # 地区キー → w_d = 1/(n_d+λ)
 
     @property
     def se(self) -> np.ndarray:
@@ -253,9 +255,16 @@ class Fit:
         return self.district_effects.reindex(df["district_key"]).fillna(0.0).to_numpy()
 
     def predict(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-        """ln価格の予測値と、その平均の標準誤差(地区効果の推定誤差は含まない)。"""
+        """ln価格の予測値と、その平均の標準誤差。
+        地区を指定した行は、γ_d = w_d(Σy_d − Σx_d'β) なので予測値 = (x − w_d·Σx_d)'β + w_d·Σy_d。
+        分散は β の推定誤差 (x − w_d·Σx_d)'V(x − w_d·Σx_d) に、地区効果の推定誤差 σ²·w_d(L2 罰則を事前分布とみたときの事後分散)を足す。"""
         X = self.design.matrix(df)
-        return X @ self.beta + self.gamma(df), np.sqrt(np.einsum("ij,jk,ik->i", X, self.cov, X))
+        C, var0 = X, np.zeros(len(df))
+        if self.district_x is not None and "district_key" in df:
+            key = df["district_key"].to_numpy()
+            C = X - self.district_x.reindex(key).fillna(0.0).to_numpy()
+            var0 = self.rmse**2 * self.district_w.reindex(key).fillna(0.0).to_numpy()
+        return X @ self.beta + self.gamma(df), np.sqrt(np.einsum("ij,jk,ik->i", C, self.cov, C) + var0)
 
 
 def fit(df: pd.DataFrame, spec: Spec, cluster: bool = False) -> Fit:
@@ -297,7 +306,8 @@ def fit(df: pd.DataFrame, spec: Spec, cluster: bool = False) -> Fit:
         Sx = Sx[:, keep]
         gamma = pd.Series((sy.to_numpy() - Sx @ beta) * w, index=sx.index)
         W = pd.DataFrame(Sx * w[:, None], index=sx.index)  # 地区効果を払い出した X̃ = X − W[地区]
-        ddf = float((nd.to_numpy() * w).sum())
+        # 実効自由度 = tr H − k = Σ n_d·w_d − λ Σ w_d²·Σx_d'(X'MX)⁻¹Σx_d。後ろの項は説明変数と地区効果の重複分
+        ddf = float((nd.to_numpy() * w).sum() - lam * (w**2 * np.einsum("ij,jk,ik->i", Sx, bread, Sx)).sum())
 
     meat, sse, sae, sy1, sy2 = np.zeros((k, k)), 0.0, 0.0, 0.0, 0.0
     for g in groups:
@@ -321,7 +331,7 @@ def fit(df: pd.DataFrame, spec: Spec, cluster: bool = False) -> Fit:
     cov = adj * bread @ meat @ bread
     r2 = 1 - sse / (sy2 - sy1**2 / n)
     return Fit(design, beta, cov, n, r2, 1 - (1 - r2) * (n - 1) / (n - p), math.sqrt(sse / (n - p)), sae / n,
-               "cluster(区)" if cluster else "HC1", gamma, ddf)
+               "cluster(区)" if cluster else "HC1", gamma, ddf, W, None if lam is None else pd.Series(w, index=sx.index))
 
 
 def age_effect(f: Fit, a0: float, a1: float) -> tuple[float, float]:

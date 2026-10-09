@@ -3,7 +3,7 @@
 
 import { loadAll, loadBoundaries, loadDataset, loadLoan, loadLong, loadMarket, loadMeta, loadPopulation, loadRates, loadVacancy } from './data.js';
 import { FE_PREFIX, ageEffect, coef, fit, predict, predictRows, table } from './model.js';
-import { interp, linspace, median, quantile, rng, sample } from './stats.js';
+import { erfc, interp, linspace, median, quantile, rng, sample } from './stats.js';
 
 const MAX_POINTS = 2500;          // 散布図に返す実取引の上限
 const PRED_ACTUAL_POINTS = 3000;  // 予測と実績の散布図に返す取引数(無作為抽出)
@@ -80,10 +80,16 @@ export async function fitSummary(p) {
   let wards = rowsTable.filter(r => r.name.startsWith('ward='));
   let baseWard = f.design.baseWard;
   if (pooled) {
-    // プール時は全区にダミーがある(定数項なし)ため、取引最多の区との差に直して表示する
+    // プール時は全区にダミーがある(定数項なし)ため、取引最多の区との差に直して表示する。
+    // 標準誤差・検定も差について計算し直す: Var(b_i − b_基準) = Var(b_i) + Var(b_基準) − 2Cov(b_i, b_基準)。
+    // ただしプール時の標準誤差は区クラスタ頑健で、区内の残差の和がほぼ0になるため、区どうしの差の誤差は小さめに出る
     baseWard = f.design.vars.find(v => v.name === 'ward').levels[0];
-    const ref = coef(f, `ward=${baseWard}`).coef;
-    wards = wards.filter(r => r.name !== `ward=${baseWard}`).map(r => ({ ...r, coef: r.coef - ref }));
+    const k = f.beta.length, b0 = f.design.names.indexOf(`ward=${baseWard}`);
+    wards = wards.filter(r => r.name !== `ward=${baseWard}`).map(r => {
+      const i = f.design.names.indexOf(r.name), d = f.beta[i] - f.beta[b0];
+      const se = Math.sqrt(f.cov[i * k + i] + f.cov[b0 * k + b0] - 2 * f.cov[i * k + b0]), t = d / se;
+      return { ...r, coef: d, se, t, p: erfc(Math.abs(t) / Math.SQRT2), ci_low: d - 1.96 * se, ci_high: d + 1.96 * se };
+    });
   }
   // 基準物件(切片に対応): 連続変数は基準値、カテゴリ項目・区・取引年は基準の水準、地区は区の平均
   const s = f.design.spec, age = f.design.vars[0];
@@ -107,6 +113,7 @@ export async function fitSummary(p) {
     coefficients: rowsTable.filter(r => !FE_PREFIX.some(x => r.name.startsWith(x))), base_age: +age.levels[0], area_step: s.ref.areaStep, station_step: s.ref.stationStep,
     area_range: [Math.max(15, quantile(areas, 0.01)), quantile(areas, 0.99)],  // 面積のグラフの範囲(断面グラフと同じ)
     categoricals: cats, dropped: f.design.dropped, holdout: await holdout(p),
+    years: [...new Set(Array.from(rows, r => year(ds, r)))].sort((a, b) => a - b),  // 推定に使った取引年(この範囲外の年は予測できない)
     year_effects: years, base_year: baseYear, ward_effects: wards.sort((a, b) => b.coef - a.coef), base_ward: baseWard,
     age_effects: [[0, 10], [10, 20], [20, 30], [30, 40]].map(([a, b]) => ({ from: a, to: b, pct: Math.expm1(ageEffect(f, a, b).effect) })),
     residual_hist: { counts: hist, edges },
@@ -243,15 +250,17 @@ export async function investmentYield({ fit: p, property: input, costs = {}, loa
   if (!(l.rate in r.rates)) throw new Error(`金利の系列が不正です: ${l.rate}`);
   if (!(l.years >= 1)) throw new Error('返済期間は1年以上にしてください。');
   const c = { ...COSTS, ...costs }, f = await getFit(p), m = await loadMeta(), { view, prop } = property(f, m, input);
-  const rentAt = (ward, age) => c.rent_month ? { rent: +c.rent_month, info: null } : estimatedRent(m, ward, view.city, view.area, age);
+  // 家賃の築年補正は、その区が属する都市のものを使う(全都市の比較では区ごとに都市が違う)。家賃の指定は 0円も有効
+  const rentAt = (ward, age) => c.rent_month != null ? { rent: +c.rent_month, info: null }
+    : estimatedRent(m, ward, f.ds.cities[f.ds.wardCity[f.ds.wards.indexOf(ward)]], view.area, age);
   const rateBy = yearlyRates(r, l), rate = rateBy[view.year] ?? null;  // 選択中の取引年の金利
   const curve = { age: [], price: [], rent: [], payment: [], gross: [], net: [], cash: [] };
   let at = null, info = null;
-  for (let age = 0; age <= 50; age++) {
+  for (let age = 0; age <= 60; age++) {  // 入力できる築年数(0〜60年)の全範囲
     const price = Math.exp(predict(f, { ...prop, age }).mu), rr = rentAt(view.ward, age), y = yields(price, rr.rent, c, l, rate);
     curve.age.push(age); curve.price.push(price); curve.rent.push(rr.rent); curve.payment.push(y.payment);
     curve.gross.push(y.gross); curve.net.push(y.net); curve.cash.push(y.cash);
-    if (age === Math.max(0, Math.min(50, Math.round(view.age)))) { at = { price, rent: rr.rent, ...y }; info = rr.info; }
+    if (age === Math.max(0, Math.min(60, Math.round(view.age)))) { at = { price, rent: rr.rent, ...y }; info = rr.info; }
   }
   // 購入した年の断面: 取引データにある各年。家賃は選択中の築年数のものを全期間に使う
   const years = [...new Set(Array.from(f.rows, row => year(f.ds, row)))].sort((a, b) => a - b);
@@ -267,7 +276,7 @@ export async function investmentYield({ fit: p, property: input, costs = {}, loa
     const price = Math.exp(predict(f, property(f, m, input, { ward: v, district: null }).prop).mu);
     wards.push({ ward: v, price, rent: rr.rent, ...yields(price, rr.rent, c, l, rate) });
   }
-  return { ward: view.ward, area: view.area, age: view.age, year: view.year, ...at, rate, rent_info: info, rent_overridden: !!c.rent_month, costs: c,
+  return { ward: view.ward, area: view.area, age: view.age, year: view.year, ...at, rate, rent_info: info, rent_overridden: c.rent_month != null, costs: c,
     loan: l, rate_label: r.labels[l.rate], curve, by_year: byYear, wards: wards.sort((a, b) => b.net - a.net) };
 }
 
@@ -535,6 +544,7 @@ export function loanCalc({ principal, rate, years, method = 'annuity' }) {
 const brokerageFee = price => (price * 0.03 + 6e4) * 1.1;
 /** 年ごとのキャッシュフロー(0年目=購入時)の内部収益率。−99%〜1000%で符号が変わらず求まらなければ null。 */
 function irr(flows) {
+  if (flows.every(v => v === 0)) return null;  // 収支がすべて0なら利回りは定義できない
   const npv = r => flows.reduce((s, v, t) => s + v / Math.pow(1 + r, t), 0);
   let lo = -0.99, hi = 10;
   if (npv(lo) * npv(hi) > 0) return null;
@@ -598,8 +608,12 @@ function addIncomeTax(S, tax, { acquisition, expensed, loan }) {
   const life = usedLife(tax.building_age, tax.legal_life), equipmentLife = usedLife(tax.building_age, EQUIPMENT_LIFE);
   const landLoanShare = loan > 0 ? Math.max(0, loan - building) / loan : 0;
   for (const k of ['dep_body', 'dep_equipment', 'depreciation', 'interest_disallowed', 'taxable', 'income_tax']) S[k] = [];
+  // 定額法: 毎年 取得価額 × 償却率(耐用年数省令 別表第八。1/耐用年数を小数3桁に切り上げた値)を、未償却残高を上限に償却する
+  const rateOf = n => Math.ceil(1000 / n - 1e-9) / 1000;
+  let restBody = building - equipment, restEquipment = equipment;
   S.year.forEach((_, j) => {
-    const db = j < life ? (building - equipment) / life : 0, de = j < equipmentLife ? equipment / equipmentLife : 0;
+    const db = Math.min(restBody, (building - equipment) * rateOf(life)), de = Math.min(restEquipment, equipment * rateOf(equipmentLife));
+    restBody -= db; restEquipment -= de;
     const raw = S.rent[j] - S.management[j] - S.repair[j] - S.rental_mgmt[j] - S.other[j] - S.turnover[j] - S.interest[j] - db - de - (j === 0 ? expensed : 0);
     const inc = raw < 0 ? Math.min(0, raw + S.interest[j] * landLoanShare) : raw, tx = inc * tax.rate_pct / 100;
     S.dep_body.push(db); S.dep_equipment.push(de); S.depreciation.push(db + de); S.interest_disallowed.push(inc - raw);

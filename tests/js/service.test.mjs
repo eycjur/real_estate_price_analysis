@@ -86,6 +86,11 @@ test('yield: 統計の家賃×築年補正、ローン返済後の利回り、�
   close(o.rate, 1.0); close(o.payment, pay(o.price, 1.0, 20)); assert.equal(o.loan.years, 20);
   const none = await routes.yield({ ...body, loan: { rate: 'jgb10' } });  // 合成データでは値がない系列
   assert.ok(none.rate == null && none.cash == null && none.by_year.cash.every(v => v == null) && none.net === r.net);
+  // 築60年まで計算する(築51年以上を築50年として扱わない)
+  const old = await routes.yield({ ...body, property: { ...body.property, age: 55 } });
+  assert.equal(old.curve.age.at(-1), 60); close(old.price, old.curve.price[55]); close(old.cash, old.curve.cash[55]);  // 合成データは築49年まで・家賃補正は築40年までなので、値の差は出ない
+  const zero = await routes.yield({ ...body, costs: { rent_month: 0 } });  // 0円も指定として扱う
+  assert.ok(zero.rent === 0 && zero.rent_overridden && zero.gross === 0);
   await assert.rejects(routes.yield({ ...body, costs: { bogus: 1 } }), /前提が不正/);
   await assert.rejects(routes.yield({ ...body, loan: { rate: 'bogus' } }), /系列が不正/);
 });
@@ -132,6 +137,13 @@ test('全都市プール: 基準の区との差で区効果を返す', async () 
   assert.ok(r.n === 6000 && r.holdout === null && r.base_year === null && r.year_effects.length === 0);
   assert.equal(r.ward_effects.length, 5);  // 6区のうち基準の区を除く
   close(r.base.price, Math.exp(0) * r.base.price);
+  // 標準誤差・検定・信頼区間も、基準の区との差について計算する(区の水準そのものの値を残さない)
+  for (const w of r.ward_effects) {
+    close(w.t, w.coef / w.se); close(w.ci_low, w.coef - 1.96 * w.se); assert.ok(w.ci_low < w.coef && w.coef < w.ci_high && Math.abs(w.coef) < 1);
+  }
+  // 利回りの区別比較: 家賃の築年補正はその区の都市のもの(X市は築0年で1.2倍、Y市は補正なし)
+  const y = await routes.yield({ fit: { city: '全都市', kind: 'mansion' }, property: { ward: 'B区', age: 0, area: 25 } });
+  close(y.wards.find(w => w.ward === 'B区').rent, 60000 * 1.2); close(y.wards.find(w => w.ward === 'YA区').rent, 40000);
 });
 
 test('取引が少なすぎる条件はエラー', async () => {
@@ -275,8 +287,9 @@ test('cashflow: 税金(減価償却・損益通算・譲渡所得税)', () => {
   const n = routes.cashflow(q), r = routes.cashflow({ ...q, tax });
   assert.equal(n.tax, null); assert.equal(n.grid[1][3].sale_tax, 0);
   assert.equal(r.tax.life, 31);  // 中古の耐用年数: (47−20) + 20×0.2 = 31
-  const dep = 1e7 / 31, Y = r.yearly;
-  close(Y.depreciation[0], dep); assert.equal(Y.depreciation[31], 0);
+  // 定額法の償却率(31年 → 0.033)で毎年33万円、30年で990万円償却し、31年目に残りの10万円
+  const dep = 1e7 * 0.033, Y = r.yearly;
+  close(Y.depreciation[0], dep); close(Y.depreciation[30], 1e7 - 30 * dep); assert.equal(Y.depreciation[31], 0);
   const inc = 120e4 - 12e4 - 12e4 - 10e4 - Y.interest[0] - dep;  // 黒字なので利子は全額経費
   close(Y.taxable[0], inc); close(Y.income_tax[0], inc * 0.3); close(Y.cf[0], n.yearly.cf[0] - inc * 0.3);
   // 売却: 譲渡所得 = 売却価格 − (取得費 − 償却累計)。10年(長期)は20.315%、5年(短期)は39.63%
@@ -292,8 +305,9 @@ test('cashflow: 税金(減価償却・損益通算・譲渡所得税)', () => {
   // 設備を3割に分ける: 設備(法定15年)は築20年なので 15×0.2 = 3年、躯体は31年
   const e = routes.cashflow({ ...q, tax: { ...tax, equipment_ratio_pct: 30 } });
   assert.equal(e.tax.equipment_life, 3);
-  close(e.yearly.depreciation[0], 0.7e7 / 31 + 0.3e7 / 3); close(e.yearly.depreciation[3], 0.7e7 / 31);
-  close(e.grid[1][3].sale_tax, (10 * 0.7e7 / 31 + 0.3e7) * 0.20315);  // 10年で設備は償却済み
+  close(e.yearly.depreciation[0], 0.7e7 * 0.033 + 0.3e7 * 0.334); close(e.yearly.depreciation[2], 0.7e7 * 0.033 + 0.3e7 * (1 - 2 * 0.334));
+  close(e.yearly.depreciation[3], 0.7e7 * 0.033);
+  close(e.grid[1][3].sale_tax, (10 * 0.7e7 * 0.033 + 0.3e7) * 0.20315);  // 10年で設備は償却済み
 });
 
 test('housing-national: 登記件数と着工戸数は12か月合計', async () => {

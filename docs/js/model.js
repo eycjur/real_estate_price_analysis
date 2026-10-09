@@ -167,6 +167,7 @@ export function fit(ds, rows, spec, meta, { cluster = false } = {}) {
   }
   const L = cholesky(xtx, k), beta = cholSolve(L, k, xty), bread = cholInverse(L, k);
 
+  // 実効自由度 = tr H − k = Σ n_d·w_d − λ Σ w_d²·Σx_d'(X'MX)⁻¹Σx_d。後ろの項は説明変数と地区効果の重複分
   let gamma = null, ddf = 0;
   if (m) {
     gamma = new Float64Array(m);
@@ -174,7 +175,11 @@ export function fit(ds, rows, spec, meta, { cluster = false } = {}) {
       let xb = 0;
       for (let a = 0; a < k; a++) xb += Sx[q * k + a] * beta[a];
       gamma[q] = (sy[q] - xb) * w[q];
-      ddf += nd[q] * w[q];
+      if (!nd[q]) continue;
+      const nz = nonzero(Sx, q, k), o = q * k;
+      let quad = 0;
+      for (const a of nz) for (const b of nz) quad += Sx[o + a] * bread[a * k + b] * Sx[o + b];
+      ddf += nd[q] * w[q] - lam * w[q] * w[q] * quad;
     }
   }
 
@@ -232,7 +237,7 @@ export function fit(ds, rows, spec, meta, { cluster = false } = {}) {
   const r2 = 1 - sse / (sy2 - sy1 * sy1 / n);
   return { design, ds, rows, beta, cov, se: Float64Array.from({ length: k }, (_, i) => Math.sqrt(cov[i * k + i])), n, r2,
     adjR2: 1 - (1 - r2) * (n - 1) / (n - p), rmse: Math.sqrt(sse / (n - p)), mae: sae / n,
-    seType: cluster ? 'cluster(区)' : 'HC1', gamma, districtDf: ddf, resid };
+    seType: cluster ? 'cluster(区)' : 'HC1', gamma, districtDf: ddf, districtX: Sx, districtW: w, districtN: nd, resid };
 }
 
 export function coef(f, name) {
@@ -267,7 +272,9 @@ export function predictRows(f, rows) {
 }
 
 /**
- * 任意の物件の ln価格の予測値と、その平均の標準誤差(地区効果の推定誤差は含まない)。
+ * 任意の物件の ln価格の予測値と、その平均の標準誤差。
+ * 地区を指定すると、γ_d = w_d(Σy_d − Σx_d'β) なので予測値 = (x − w_d·Σx_d)'β + w_d·Σy_d。分散は β の推定誤差
+ * (x − w_d·Σx_d)'V(x − w_d·Σx_d) に、地区効果の推定誤差 σ²·w_d(L2 罰則を事前分布とみたときの事後分散)を足す。
  * prop: { age, area, land_area, station_min, ward(番号), year(西暦), city(番号), district(番号 | -1), cats: {変数: 水準番号} }
  */
 export function predict(f, prop) {
@@ -283,9 +290,18 @@ export function predict(f, prop) {
     const c = v.map[code] ?? -1;
     if (c >= 0) { idx.push(c); val.push(1); }
   }
+  const c = new Float64Array(k);
+  idx.forEach((a, i) => { c[a] += val[i]; });
   let mu = 0, variance = 0;
-  idx.forEach((a, i) => { mu += val[i] * beta[a]; idx.forEach((b, j) => { variance += val[i] * val[j] * cov[a * k + b]; }); });
-  return { mu: mu + (gamma && prop.district >= 0 ? gamma[prop.district] : 0), se: Math.sqrt(variance) };
+  for (let a = 0; a < k; a++) mu += c[a] * beta[a];
+  const q = gamma && prop.district >= 0 && f.districtN[prop.district] ? prop.district : -1;
+  if (q >= 0) {
+    mu += gamma[q];
+    for (let a = 0; a < k; a++) c[a] -= f.districtW[q] * f.districtX[q * k + a];
+    variance += f.rmse * f.rmse * f.districtW[q];
+  }
+  for (let a = 0; a < k; a++) if (c[a]) for (let b = 0; b < k; b++) if (c[b]) variance += c[a] * c[b] * cov[a * k + b];
+  return { mu, se: Math.sqrt(variance) };
 }
 
 /** 築年数 a0→a1 による ln価格の変化とその標準誤差(築年数ダミーの係数の差)。 */
