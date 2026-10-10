@@ -21,11 +21,11 @@
 <style>
 :root {
   --bg: #f4f3ef; --surface: #fcfcfb; --border: #dddbd3; --text: #0b0b0b; --text2: #52514e; --muted: #8a887f;
-  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --grid: #e7e5de; --accent: #2a78d6; --hl-text: #a83c12;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --grid: #e7e5de; --accent: #2a78d6; --hl-text: #a83c12; --warn: #a86a00; --bad: #c62828;
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #111110; --surface: #1a1a19; --border: #33332f; --text: #fff; --text2: #c3c2b7; --muted: #8a887f;
-    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --grid: #2a2a27; --accent: #3987e5; --hl-text: #f4a582; }
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --grid: #2a2a27; --accent: #3987e5; --hl-text: #f4a582; --warn: #e0a84a; --bad: #ef6b6b; }
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -38,14 +38,26 @@ h1 { font-size: 22px; margin: 0 0 2px; letter-spacing: .02em; }
 label.f { display: flex; flex-direction: column; font-size: 12px; color: var(--text2); gap: 3px; }
 select { max-width: 100%; }
 label.f { max-width: 100%; }
-select, input[type=number] { font: inherit; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
+.help { display: inline-grid; place-items: center; width: 1.4em; height: 1.4em; border-radius: 50%; border: 1px solid var(--muted); color: var(--muted); font-size: 11px; font-weight: 600; cursor: default; vertical-align: 1px; }
+.help:hover, .help:focus { color: var(--text); border-color: var(--text); outline: none; }
+#tip { position: fixed; z-index: 1000; max-width: min(320px, calc(100vw - 32px)); padding: 8px 10px; border-radius: 6px; background: var(--text); color: var(--surface); font-size: 12px; line-height: 1.5; pointer-events: none; box-shadow: 0 2px 8px rgb(0 0 0 / .2); }
+select, input[type=number], input[type=text] { font: inherit; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
 input[type=number] { width: 84px; }
 .checks { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+#a_tiles { grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); }
+#a_tiles .tile .v { font-size: 21px; white-space: nowrap; }
 .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
 .tile .k { font-size: 12px; color: var(--text2); }
 .tile .v { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .tile .n { font-size: 11.5px; color: var(--muted); }
+.tile.warn, .tile.bad { border-width: 2px; }
+.tile.warn { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 7%, var(--surface)); }
+.tile.bad { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 7%, var(--surface)); }
+.tile.warn .v, .tile.warn .flag, table.sheet .warn { color: var(--warn); }
+.tile.bad .v, .tile.bad .flag, table.sheet .bad { color: var(--bad); }
+table.sheet .warn, table.sheet .bad { font-weight: 700; }
+.tile .flag { font-size: 11.5px; font-weight: 650; }
 .eq { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; overflow-wrap: anywhere; padding: 8px 0 2px; }
 .tabs.modes { margin-bottom: 14px; }
 .tabs.modes button { font-size: 15px; padding: 9px 18px; }
@@ -114,6 +126,14 @@ a { color: var(--accent); }
 #sim_grid td.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
 #sim_grid td .n { font-size: 11.5px; color: var(--muted); font-weight: 400; }
 tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
+table.sheet { width: 100%; max-width: 760px; min-width: 600px; table-layout: fixed; border: 2px solid var(--text2); margin-bottom: 14px; }
+table.sheet td { border: 1px solid var(--border); padding: 6px 10px; white-space: nowrap; text-align: right; }
+table.sheet td.lbl { text-align: left; }
+table.sheet td.sec { writing-mode: vertical-rl; text-align: center; letter-spacing: .2em; background: color-mix(in srgb, var(--text2) 10%, transparent); font-weight: 650; }
+table.sheet td.grp { writing-mode: vertical-rl; text-align: center; }
+table.sheet td.lbl { white-space: normal; }
+table.sheet td.in { background: color-mix(in srgb, var(--s1) 16%, transparent); }
+table.sheet tr.sum td:not(.sec):not(.grp) { background: color-mix(in srgb, var(--text2) 16%, transparent); font-weight: 700; }
 </style>
 </head>
 <body>
@@ -130,6 +150,7 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
     <button data-mode="population" aria-selected="false">人口</button>
     <button data-mode="vacancy" aria-selected="false">賃貸の空室率</button>
     <button data-mode="long" aria-selected="false">長期推移(地価・家賃・金利)</button>
+    <button data-mode="appraisal" aria-selected="false">物件の評価</button>
   </div>
 
   <div id="mode-city">
@@ -198,6 +219,7 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
     </div>
     <div class="panel">
       <h2 id="profile_title">推定価格</h2>
+      <div id="profile_trend"></div>
       <div id="chart_profile" class="chart"></div>
       <p class="note" id="profile_note"></p>
     </div>
@@ -369,13 +391,14 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
         <label class="f">取引年 から<input type="number" id="m_year_from"></label>
         <label class="f">まで<input type="number" id="m_year_to"></label>
         <label class="f">強調する地域<select id="m_series"></select></label>
+        <label class="f">単価<select id="m_unit"><option value="m2">㎡単価</option><option value="tsubo">坪単価</option></select></label>
       </div>
-      <p class="note">強調する地域は、棒グラフ・推移・一覧で橙色になります(表の行・棒・線をクリックしても切り替わります)。「都市ごとの分析」で選んだ都市に連動します。</p>
+      <p class="note">強調する地域は、棒グラフ・推移・一覧で橙色になります(表の行・棒・線をクリックしても切り替わります)。「都市ごとの分析」で選んだ都市に連動します。坪単価は ㎡単価 × 3.306(1坪 = 400/121㎡)で、戸建・一棟ものは延床面積あたりです。</p>
       <p id="market_status" class="note"></p>
     </div>
     <div class="grid2">
-      <div class="panel"><h2>㎡単価の相場(中央値)</h2><div id="chart_market" class="chart sm"></div></div>
-      <div class="panel"><h2>㎡単価の推移</h2><div id="chart_market_year" class="chart sm" style="height:420px"></div>
+      <div class="panel"><h2><span class="m_unit_lbl">㎡単価</span>の相場(中央値)</h2><div id="chart_market" class="chart sm"></div></div>
+      <div class="panel"><h2><span class="m_unit_lbl">㎡単価</span>の推移</h2><div id="chart_market_year" class="chart sm" style="height:420px"></div>
         <p class="note">面積・築年数・駅徒歩の条件に合う取引の年別中央値を、全期間・全地域ぶん描いています(取引年の条件は一覧と棒グラフにだけ適用。件数20件未満の年は除外)。線にカーソルを載せると地域名を表示。</p></div>
     </div>
     <div class="panel">
@@ -543,11 +566,13 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
       </select></label>
       <label class="f">税金(所得税・住民税、節税効果)<select id="s_tax">
         <option value="">含めない</option>
-        <option value="20">含める: 税率20%(課税所得195〜330万円)</option>
-        <option value="30">含める: 税率30%(330〜695万円)</option>
-        <option value="33" selected>含める: 税率33%(695〜900万円)</option>
-        <option value="43">含める: 税率43%(900〜1,800万円)</option>
-        <option value="50">含める: 税率50%(1,800〜4,000万円)</option>
+        <option value="15.105">含める: 税率15.105%(課税所得195万円以下)</option>
+        <option value="20.21">含める: 税率20.21%(195〜330万円)</option>
+        <option value="30.42">含める: 税率30.42%(330〜695万円)</option>
+        <option value="33.483" selected>含める: 税率33.483%(695〜900万円)</option>
+        <option value="43.693">含める: 税率43.693%(900〜1,800万円)</option>
+        <option value="50.84">含める: 税率50.84%(1,800〜4,000万円)</option>
+        <option value="55.945">含める: 税率55.945%(4,000万円超)</option>
       </select></label>
       <span class="filters" id="sim_tax_inputs" hidden>
         <label class="f">建物の構造(法定耐用年数)<select id="s_structure">
@@ -558,7 +583,7 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
         <label class="f">建物のうち設備の割合<select id="s_equipment"><option value="0">分けない</option><option value="20" selected>20%</option><option value="30">30%</option></select></label>
       </span>
     </div>
-    <p class="note">リスクを選ぶと、下の表と総収支にリスクなしの場合との差も表示します。税率は所得税と住民税の合計で、給与など他の所得を合わせた課税所得の区分で選びます。</p>
+    <p class="note">リスクを選ぶと、下の表と総収支にリスクなしの場合との差も表示します。税率は所得税(復興特別所得税として所得税の2.1%を含む)と住民税10%の合計で、給与など他の所得を合わせた課税所得の区分で選びます。</p>
     <p id="sim_status" class="note"></p>
   </section>
   <div class="grid2 sim-costs">
@@ -763,6 +788,112 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
     </ul>
   </div>
   </div>
+  <div id="mode-appraisal" hidden>
+  <section class="panel">
+    <h2>物件 <span class="note">— 区・地区(町名)と物件資料の値を入れると、各種の価格・評価額の目安を並べます</span></h2>
+    <div class="filters">
+      <label class="f">物件名(リンク用、任意)<input type="text" id="a_name" style="width:200px"></label>
+      <label class="f">種別<select id="a_kind"></select></label>
+      <label class="f">都市<select id="a_city"></select></label>
+      <label class="f">区<select id="a_ward"></select></label>
+      <label class="f">地区<select id="a_district"></select></label>
+      <label class="f">構造<select id="a_structure"><option>RC</option><option>SRC</option><option>鉄骨造</option><option>木造</option></select></label>
+      <label class="f">築年数<input type="number" id="a_age" value="20" min="0" max="80"></label>
+      <label class="f"><span id="a_lbl_area">専有面積(㎡)</span><input type="number" id="a_area" value="25" min="10" max="3000" step="0.01"></label>
+      <label class="f" id="a_wrap_land" hidden>土地面積(㎡)<input type="number" id="a_land_area" value="100" min="10" max="5000" step="0.01"></label>
+      <label class="f">駅徒歩(分)<input type="number" id="a_station_min" value="3" min="0" max="60"></label>
+    </div>
+    <div class="filters" style="margin-top:10px" id="a_condo">
+      <label class="f"><span>敷地持分(㎡) <span class="help" tabindex="0" data-tip="敷地全体の面積 × 敷地権の割合。登記事項証明書・重要事項説明書に記載">?</span></span><input type="number" id="a_site_area" value="8" min="0.1" step="0.01"></label>
+      <label class="f">総階数(地階を除く)<input type="number" id="a_floors" value="10" min="1" max="80"></label>
+      <label class="f">所在階<input type="number" id="a_floor" value="4" min="0" max="80"></label>
+      <label class="f"><span>延床 ÷ 専有面積 <span class="help" tabindex="0" data-tip="共用部分(廊下・エントランスなど)を含む倍率。建物の再調達原価の計算に使う。一般に1.2〜1.3程度">?</span></span><input type="number" id="a_common_ratio" value="1.25" min="1" max="3" step="0.05"></label>
+    </div>
+    <div class="filters" style="margin-top:10px">
+      <label class="f">地価公示の用途<select id="a_use"><option>住宅地</option><option selected>商業地</option></select></label>
+      <label class="f">売出価格(万円、任意)<input type="number" id="a_ask" value="2700" min="0" step="10" style="width:100px"></label>
+      <label class="f">家賃(円/月、任意)<input type="number" id="a_rent" value="87000" min="0" step="1000" style="width:100px" placeholder="統計から推定"></label>
+      <label class="f">経費率(家賃の%)<input type="number" id="a_expense_pct" value="40" min="0" max="90" step="1"></label>
+      <label class="f">還元利回り(%)<input type="number" id="a_cap_rate" value="4.5" min="0.5" max="20" step="0.1"></label>
+    </div>
+    <p class="note">地価公示の用途は、物件の用途地域が商業・近隣商業なら商業地、それ以外は住宅地が目安です。家賃を空けると、区分マンションは住宅・土地統計調査の区×面積の平均家賃(築年数で補正)を使います。</p>
+    <div class="filters" style="margin-top:10px" id="a_sheet_inputs">
+      <span class="note" style="align-self:center">分析シート:</span>
+      <label class="f">購入諸費用(%)<input type="number" id="a_cost_pct" value="5" min="0" max="20" step="0.5" style="width:70px"></label>
+      <label class="f">融資(物件価格の%)<input type="number" id="a_loan_pct" value="90" min="0" max="120" step="5" style="width:70px"></label>
+      <label class="f">貸出金利(%)<input type="number" id="a_loan_rate" value="2.6" min="0" max="15" step="0.1" style="width:70px"></label>
+      <label class="f">融資期間(年)<input type="number" id="a_term" value="35" min="1" max="50" placeholder="自動" style="width:70px"></label>
+      <label class="f">空室のストレス(%)<input type="number" id="a_stress" value="10" min="0" max="80" step="1" style="width:70px"></label>
+      <label class="f">リスク金利(%)<input type="number" id="a_risk_rate" value="4.5" min="0" max="15" step="0.1" style="width:70px"></label>
+      <label class="f">容積率(%)<input type="number" id="a_far" min="50" max="2000" step="10" placeholder="地価公示" style="width:80px"></label>
+    </div>
+    <p id="a_status" class="note"></p>
+  </section>
+  <div class="tiles" id="a_tiles"></div>
+  <div class="tiles" id="a_yield_tiles"></div>
+  <div class="tiles" id="a_metric_tiles"></div>
+  <div class="panel">
+    <h2>収益不動産キャッシュフロー分析シート <span class="note">— 積算と返済比率・金利上昇時の収支から、融資と投資の効率をざっと判定します。色のついた欄が入力や推定から入る値です</span></h2>
+    <div class="tblwrap" id="a_sheet"></div>
+    <p class="note" id="a_sheet_note"></p>
+  </div>
+  <div class="grid2">
+    <div class="panel"><h2>価格・評価額の比較</h2><div id="chart_appraisal" class="chart sm"></div></div>
+    <div class="panel"><h2>計算の内訳</h2><div class="tblwrap"><table id="a_table"></table></div></div>
+  </div>
+  <div class="panel">
+    <h2 id="a_koji_title">近くの地価公示の地点</h2>
+    <div class="tblwrap"><table id="a_koji"></table></div>
+    <p class="note" id="a_koji_note"></p>
+  </div>
+  <div class="panel">
+    <h2>調べるときのリンク <span class="note">— 外部サイト。位置は地区(町名)の代表点なので、地図では物件の場所に合わせ直してください</span></h2>
+    <ul class="src" id="a_links"></ul>
+  </div>
+  <div class="panel">
+    <h2>確認すること</h2>
+    <details open><summary>現地・物件まわり</summary><ul class="src">
+      <li>立地: 周辺の様子(住宅街か、飲食店・スーパー・コンビニ)、駅前の充実度、車通り、通勤先と所要時間、周辺の大学・企業</li>
+      <li>建物: 外観・共用部の管理状態、日当たり・眺望(主方位)、傾きなどの欠陥、旧耐震(1981年6月より前の建築確認)でないか、インスペクション</li>
+      <li>災害・事故: ハザードマップ(洪水・高潮・津波・土砂)、事故物件(大島てる)</li>
+      <li>賃貸: 近隣の同条件の募集家賃(駅・面積・徒歩分数で絞る)、同じ建物の賃貸履歴・空室の数、入居者の属性・平均居住年数・滞納の有無・保証会社</li>
+      <li>価格: 同じ建物・近隣の過去の売出価格と成約価格(レインズ・マーケット・インフォメーション)、売出価格での表面利回り</li>
+      <li>管理: 修繕積立金の残高と滞納、長期修繕計画・大規模修繕の予定、積立金の値上げ予定、民泊・ペットの可否、抵当権(引き渡しまでに抹消されるか)</li>
+    </ul></details>
+    <details><summary>資料で見ること</summary><ul class="src">
+      <li>物件概要書: 構造・築年数・利回り、違法でないか(容積率・建ぺい率・用途地域・接道・既存不適格・再建築時の制約)、確認済証・検査済証</li>
+      <li>レントロール: 最新か、入居の偽装がないか、入居中の家賃と募集家賃の差</li>
+      <li>業者へのヒアリング: エリアの特徴・賃貸需要・賃借人の特徴、満室にする条件、競合物件、ネガティブな情報</li>
+      <li>重要事項説明書・売買契約書は、ドラフトを事前にもらっておく</li>
+    </ul>
+    <div class="tblwrap"><table>
+      <tr><th>共通</th><th>区分マンションなら追加</th><th>一棟なら追加</th></tr>
+      <tr><td>登記事項証明書</td><td>管理規約</td><td>全賃貸借契約書</td></tr>
+      <tr><td>公図</td><td>長期修繕計画</td><td>レントロール</td></tr>
+      <tr><td>建築確認資料</td><td>修繕履歴</td><td>入金履歴</td></tr>
+      <tr><td>検査済証</td><td>管理組合の決算</td><td>修繕履歴</td></tr>
+      <tr><td>固定資産評価証明</td><td>管理組合の予算</td><td>固定資産税の通知</td></tr>
+      <tr><td>固定資産税の資料</td><td>総会議事録</td><td>消防点検</td></tr>
+      <tr><td>重要事項説明書</td><td>重要事項調査報告書</td><td>エレベーター点検</td></tr>
+      <tr><td>売買契約書案</td><td>修繕積立金の残高</td><td>境界の資料</td></tr>
+      <tr><td>ハザードの資料</td><td>滞納額</td><td>測量図</td></tr>
+      <tr><td>修繕の資料</td><td>修繕積立金の値上げ予定</td><td>インスペクション</td></tr>
+      <tr><td>賃貸借契約書</td><td>大規模修繕の予定</td><td>各種設備の点検</td></tr>
+    </table></div></details>
+  </div>
+  <div class="panel">
+    <h2>計算方法と限界</h2>
+    <ul class="src" id="a_method">
+      <li>市場価格: 「都市ごとの分析」と同じ回帰モデル(全期間)で、最新の取引年・入力した条件・地区の推定価格。帯は個別物件の95%予測区間。カテゴリ項目(間取り・用途地域など)は同じ区で面積が近い取引の最頻値です。</li>
+      <li>土地の単価: 国土交通省「地価公示」の同じ用途の地点のうち、地区の代表点(町名ごとの位置参照情報の平均)からの距離(km)と、駅からの距離の差(km、徒歩1分=80m)の合計が小さい3地点を、その逆数で重みづけ平均します(地区を指定しないときは区の全地点の中央値)。表のチェックで地点を選び直せます。公示価格は毎年1月1日時点の、更地としての正常な価格です。</li>
+      <li>路線価の目安: 公示価格 × 0.8(路線価は公示価格の8割程度を目安に定められる)。実際の路線価は国税庁の路線価図で確認してください。相続税評価額(土地)は 路線価の目安 × 敷地の面積で、奥行・形状などの補正や貸家建付地の減額は入れていません。</li>
+      <li>固定資産税評価額: 土地は 公示価格 × 0.7 × 面積(7割程度を目安に定められる)。建物は 再調達原価 × 0.6(新築時の評価は工事費の5〜7割程度とされる)× 経年の補正(法定耐用年数で0.2まで直線で下げる)の粗い目安です。実際の値は固定資産評価証明書で確認してください。</li>
+      <li>相続税評価額: 土地(路線価の目安)+ 建物(固定資産税評価額 × 1.0)。分譲マンションは令和6年1月以降の区分所有補正率(評価乖離率 = 築年数×△0.033 + 総階数指数×0.239 + 所在階×0.018 + 敷地持分狭小度×△1.195 + 3.220)を掛けます(国税庁タックスアンサー No.4667)。総階数2以下は対象外。</li>
+      <li>積算価格: 土地(公示価格 × 面積)+ 建物(再調達原価 × 残存年数 ÷ 法定耐用年数)。再調達原価は国税庁「建物の標準的な建築価額表」の最新年の構造別の㎡単価 × 床面積(区分マンションは専有面積 × 共用部分を含む倍率)。法定耐用年数は RC・SRC 47年、鉄骨造 34年(骨格材4mm超)、木造 22年。</li>
+      <li>収益価格: 年間家賃 × (1 − 経費率) ÷ 還元利回り(直接還元法)。経費率は空室・管理費・修繕積立金・固定資産税などをまとめた割合です。</li>
+    </ul>
+  </div>
+  </div>
   <footer class="note" style="margin-top:24px;line-height:1.8">
     出典: 「不動産取引価格情報・成約価格情報」(国土交通省 <a href="https://www.reinfolib.mlit.go.jp/" target="_blank" rel="noopener">不動産情報ライブラリ</a>)、
     「日本の地域別将来推計人口」(<a href="https://www.ipss.go.jp/" target="_blank" rel="noopener">国立社会保障・人口問題研究所</a>)、
@@ -772,7 +903,7 @@ tr.total td { font-weight: 650; border-top: 2px solid var(--border); }
     「国債金利情報」(<a href="https://www.mof.go.jp/jgbs/reference/interest_rate/index.htm" target="_blank" rel="noopener">財務省</a>)、
     「既存住宅販売量指数」「建築着工統計」(国土交通省)、「賃貸住宅融資 参考金利の推移表」「住宅ローン利用者の実態調査」(住宅金融支援機構)、「貸出先別貸出金」(日本銀行)、各金融機関の公表金利 を加工して作成。
     人口の地図は国土数値情報「行政区域」(国土交通省)を加工して作成。長期推移は、国土数値情報「地価公示」(国土交通省)、「消費者物価指数」(総務省統計局)、
-    日本不動産研究所「市街地価格指数」(<a href="https://data.bis.org/" target="_blank" rel="noopener">BIS</a> の Residential property prices: detailed series より)を加工して作成。市況の首都圏の件数・価格は、東日本不動産流通機構「月例速報 Market Watch」をもとに作成(<a href="https://www.reins.or.jp/" target="_blank" rel="noopener">東日本レインズ</a>)。背景地図: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>。<br>
+    日本不動産研究所「市街地価格指数」(<a href="https://data.bis.org/" target="_blank" rel="noopener">BIS</a> の Residential property prices: detailed series より)を加工して作成。市況の首都圏の件数・価格は、東日本不動産流通機構「月例速報 Market Watch」をもとに作成(<a href="https://www.reins.or.jp/" target="_blank" rel="noopener">東日本レインズ</a>)。物件の評価は、国土数値情報「地価公示」(国土交通省)と、国税庁「<a href="https://www.nta.go.jp/taxes/shiraberu/shinkoku/syotoku/joto/pdf/001.pdf" target="_blank" rel="noopener">建物の標準的な建築価額表</a>」を加工して作成。背景地図: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>。<br>
     このページは個人が上記のデータを編集・加工して作成したもので、国や各機関が作成・保証したものではありません。推定値は参考情報であり、個別の不動産の査定・投資判断の根拠とはなりません。<br>
     <button type="button" id="clear_cache" class="cache-btn">キャッシュを消して再読み込み</button> データや画面を更新したのに古い表示のままのときに押してください。読み込み済みのファイルを取り直し、計算の結果も破棄します。
   </footer>
@@ -1108,9 +1239,23 @@ async function renderProfile() {
     ...band(p.x, man(p.pi_low), man(p.pi_high), css('--s1'), '95%予測区間(個別物件)', '1f'),
     ...band(p.x, man(p.ci_low), man(p.ci_high), css('--s1'), '95%信頼区間(平均)', '55'),
     { x: p.x, y: man(p.price), mode: 'lines', name: '推定価格', line: { color: css('--s1'), width: 2.5 }, hovertemplate: '%{y:,.0f}万円<extra>推定価格</extra>' },
+    ...(p.trend ? [{ x: p.trend.x, y: man(p.trend.price), mode: 'lines', name: '区間ごとの年率で近似', line: { color: css('--s2'), width: 2, dash: 'dash' }, hoverinfo: 'skip' }] : []),
   ], layout({ xaxis: { title: { text: p.label } }, yaxis: priceAxis }), CFG);
+  renderTrend(p);
   const i0 = 0, i1 = p.x.length - 1;
   $('profile_note').textContent = `推定価格: ${p.label} ${p.x[i0]} のとき ${yen(p.price[i0])} → ${Math.round(p.x[i1])} のとき ${yen(p.price[i1])}。灰色の点は同じ区で固定条件に近い実取引(築年数±5年、面積0.8〜1.25倍、駅±5分、取引年±2年)。`;
+}
+
+// 築年数・取引年の断面で、価格が年に何%変わるかを区間ごとに出す。取引の最も多い区間を「大体」、残りを変化の大小で分ける
+function renderTrend(p) {
+  const el = $('profile_trend');
+  if (!p.trend) { el.innerHTML = ''; return; }
+  const segs = p.trend.segments, main = segs.reduce((a, b) => b.share > a.share ? b : a);
+  const span = g => p.vary === 'age' ? `築${g.from}〜${g.to}年` : `${g.from}〜${g.to}年`;
+  const tile = g => `<div class="tile"><div class="k">${g === main ? '大体' : Math.abs(g.rate) > Math.abs(main.rate) ? '変化が大きい区間' : '変化が小さい区間'}(${span(g)})</div>
+    <div class="v">年 ${pct(g.rate)}</div><div class="n">取引の${Math.round(g.share * 100)}%がこの区間</div></div>`;
+  el.innerHTML = `<div class="tiles">${segs.map(tile).join('')}</div>
+    <p class="note">推定価格の曲線(ln価格)を、折れ点が最大2つの折れ線(破線)で近似した区間ごとの年率です。折れ点は取引件数で重みづけした当てはまりが最もよくなる位置で、年率の差が1ポイント未満の区間はまとめます。${p.vary === 'age' ? '築年数は取引の99%が収まる範囲まで(古い物件は件数が少なく係数がぶれるため)。' : '取引年は物件条件を固定した相場の変化で、築年数による下落は含みません。'}</p>`;
 }
 
 async function renderForecast() {
@@ -1558,8 +1703,8 @@ async function renderRepayment() {
 // 家賃・管理費・修繕積立金・賃貸管理手数料は物件ごとに違うので上の入力欄に置き、内訳では金額だけ表示する
 let SIM;
 const SIM_ITEMS = {
-  purchase: [['loan_fee_pct', 'ローン事務手数料・保証料(借入額の%)', 2.2, 'pct'], ['scrivener', '司法書士費用', 15, 'man'], ['registration_pct', '登録免許税(物件価格の%)', 1.2, 'pct'],
-    ['stamp', '印紙税', 3, 'man'], ['acquisition_tax_pct', '不動産取得税(物件価格の%)', 0.7, 'pct'], ['fire_insurance', '火災保険(一括)', 3, 'man'], ['settlement', '精算金(固定資産税・管理費など)', 5, 'man']],
+  purchase: [['loan_fee_pct', 'ローン事務手数料・保証料(借入額の%)', 2.2, 'pct'], ['scrivener', '司法書士費用', 15, 'man'], ['registration_pct', '登録免許税(所有権移転+抵当権設定、物件価格の%)', 1.2, 'pct'],
+    ['acquisition_tax_pct', '不動産取得税(物件価格の%)', 0.7, 'pct'], ['fire_insurance', '火災保険(一括)', 3, 'man'], ['settlement', '精算金(固定資産税・管理費など)', 5, 'man']],
   running: [['property_tax', '固定資産税・都市計画税', 5000, 'yen'], ['insurance', '火災保険', 500, 'yen'], ['earthquake_insurance', '地震保険', 500, 'yen', true], ['accountant', '税理士費用', 0, 'yen']],
   turnover: [['interval_years', '入れ替えの頻度', 4, 'yr'], ['restoration', '原状回復・クロス・ハウスクリーニング', 10, 'man', 'on'], ['move_out', '退去立会い・精算手数料', 2, 'man'], ['key', '鍵交換', 2, 'man', true],
     ['utilities_month', '空室中の光熱費(円/月)', 3000, 'yen'], ['ad_months', '入居募集の広告料', 1, 'mon'], ['agent_months', '入居者の仲介手数料(オーナー負担分)', 1, 'mon', true], ['free_rent_months', 'フリーレント', 0.5, 'mon'], ['vacancy_months', '空室期間(家賃が入らない)', 2, 'mon']],
@@ -1595,7 +1740,7 @@ function initSim() {
   const inp = (g, [k, , v, u, sw]) => (sw ? `<input type="checkbox" data-sw="${g}.${k}"${sw === 'on' ? ' checked' : ''}> ` : '')
     + `<input type="number" data-g="${g}" data-k="${k}" data-u="${u}" value="${v}" min="0" step="${u === 'yen' ? 500 : u === 'man' ? 1 : 0.1}"${sw === true ? ' disabled' : ''}> ${SIM_UNIT[u].replace('円/月', '円')}`;
   const rows = g => SIM_ITEMS[g].map(it => simRow(it[1], g + '.' + it[0], inp(g, it))).join('');
-  $('sim_purchase').innerHTML = simRow('頭金', 'purchase.down') + simRow('仲介手数料(上の入力欄で選択)', 'purchase.brokerage') + rows('purchase') + simRow('諸費用の合計(頭金を除く)', 'purchase.costs').replace('<tr>', '<tr class="total">');
+  $('sim_purchase').innerHTML = simRow('頭金', 'purchase.down') + simRow('仲介手数料(上の入力欄で選択)', 'purchase.brokerage') + rows('purchase') + simRow('印紙税(売買契約書・ローン契約書、金額から自動)', 'purchase.stamp') + simRow('諸費用の合計(頭金を除く)', 'purchase.costs').replace('<tr>', '<tr class="total">');
   $('sim_run').innerHTML = simRow('<span data-l="management">管理費</span>', 'running.management') + simRow('修繕積立金', 'running.repair_reserve').replace('<tr>', '<tr data-only="unit">')
     + simRow('賃貸管理手数料', 'running.rental_mgmt_pct') + simRow('<span data-l="equipment"></span>', 'running.equipment') + rows('running');
   // 設備の表。1棟では専有部の行は1戸あたり(× 戸数)で、建物全体の修繕の行を足す
@@ -2228,10 +2373,255 @@ async function renderLongRates() {
     legend: { y: 1.2 }, margin: { t: 60 } }), CFG);
 }
 
+// ---- 物件の評価 ----
+let APPRAISAL_INIT = false, A_POINTS = null, A_LAST = null;  // A_POINTS: 表のチェックで選び直した地価公示の地点(null なら近い順に自動)。A_LAST: 最後の計算結果(リンクの位置に使う)
+const A_STRUCTURE = { mansion: 'RC', house: '木造', bldg_rc: 'RC', bldg_wood: '木造' };
+const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+function aKindChanged() {
+  const k = $('a_kind').value, condo = k === 'mansion';
+  $('a_condo').hidden = !condo; $('a_wrap_land').hidden = condo;
+  $('a_lbl_area').textContent = condo ? '専有面積(㎡)' : '延床面積(㎡)';
+  $('a_structure').value = A_STRUCTURE[k];
+  fillSelect($('a_city'), META.cities.filter(c => c.n[k]).map(c => [c.name, c.name]), $('a_city').value);
+}
+async function aCityChanged(ward, district) {
+  const c = META.cities.find(x => x.name === $('a_city').value);
+  fillSelect($('a_ward'), c.wards[$('a_kind').value].map(w => [w, w]), ward ?? $('a_ward').value);
+  await aWardChanged(district);
+}
+async function aWardChanged(district) {
+  $('a_status').className = 'note'; $('a_status').textContent = '地区を読み込み中…(初回は回帰を推定するため数秒かかります)';
+  const ds = await api('/api/districts', { fit: { city: $('a_city').value, kind: $('a_kind').value }, ward: $('a_ward').value });
+  fillSelect($('a_district'), [['', '区の平均(指定しない)'], ...ds.map(d => [d.district, `${d.district} (${d.n}件)`])], district ?? '');
+}
+/** 評価タブのタイル。flag = ['warn' | 'bad', 理由] なら枠と値に色を付け、理由を書く */
+const aTile = (k, v, n, help, flag) => `<div class="tile${flag ? ' ' + flag[0] : ''}"><div class="k">${k} <span class="help" tabindex="0" data-tip="${help}">?</span></div>` +
+  `<div class="v">${v}</div>${flag ? `<div class="flag">${flag[0] === 'bad' ? '要注意' : '注意'}: ${flag[1]}</div>` : ''}<div class="n">${n}</div></div>`;
+async function renderAppraisal() {
+  const st = $('a_status'), num = id => $(id).value === '' ? null : +$(id).value;
+  const q = { kind: $('a_kind').value, city: $('a_city').value, ward: $('a_ward').value, district: $('a_district').value, structure: $('a_structure').value,
+    age: num('a_age'), area: num('a_area'), land_area: num('a_land_area'), station_min: num('a_station_min'), site_area: num('a_site_area'),
+    floors: num('a_floors'), floor: num('a_floor'), common_ratio: num('a_common_ratio'), use: $('a_use').value,
+    ask_price: num('a_ask') ? num('a_ask') * 1e4 : null, rent: num('a_rent'), expense_pct: num('a_expense_pct'), cap_rate: num('a_cap_rate'), points: A_POINTS,
+    sheet: { cost_pct: num('a_cost_pct'), loan_pct: num('a_loan_pct'), rate: num('a_loan_rate'), term: num('a_term'),
+      stress_pct: num('a_stress'), risk_rate: num('a_risk_rate'), far: num('a_far') } };
+  st.className = 'note'; st.textContent = '計算中…';
+  let r;
+  try { r = A_LAST = await api('/api/appraisal', q); } catch (e) { st.textContent = e.message; st.className = 'err'; return; }
+  const v = r.view, mp = r.market.price, ratio = x => (x / mp * 100).toFixed(0) + '%';
+  st.textContent = `${v.ward} ${v.district ?? '(区の平均)'}・${v.year}年の取引として推定。回帰のカテゴリ項目は同じ区で面積が近い取引の最頻値(${[v.layout && '間取り ' + v.layout, '用途地域 ' + v.zoning, '容積率 ' + v.far].filter(Boolean).join('、')})。`;
+
+  const inc = r.income, corr = r.inherit.correction;
+  const items = [
+    ['市場価格(回帰の推定)', mp, `95%予測区間 ${yen(r.market.pi_low)}〜${yen(r.market.pi_high)}`,
+      '同じ区・地区で条件の近い取引から推定した成約価格の目安。幅は95%予測区間(実際の取引の95%がこの範囲に入る)'],
+    r.ask_price && ['売出価格', r.ask_price, `推定の市場価格より ${pct(r.ask_price / mp - 1)}`, '入力した売出価格。推定の市場価格と比べて割高・割安を見る。推定の1割を超えると黄、95%予測区間の上限を超えると赤',
+      r.ask_price > r.market.pi_high ? ['bad', '推定の95%区間の上限より高い'] : r.ask_price > mp * 1.1 ? ['warn', '推定の市場価格より1割以上高い'] : null],
+    inc.price && ['収益価格', inc.price, `純収益(家賃 − 経費${q.expense_pct}%)÷ 還元利回り ${q.cap_rate}%`,
+      '家賃から経費を引いた年間の純収益を、還元利回り(市場で求められる利回り)で割った価格。家賃から見た妥当な価格で、本来は市場価格に近くなる。還元利回りは経費率と同じ定義(何を経費に含めるか)にそろえる'],
+    ['積算価格(公示ベース)', r.cost_price, `土地 ${yen(r.land.koji)} + 建物 ${yen(r.building.value)}`,
+      '土地(近くの地価公示の価格)+ 建物(建築費 × 残存年数 ÷ 耐用年数)の原価。鑑定評価の原価法に近い。立地の人気などは入らないため、都心では市場価格より低いのがふつう'],
+    ['積算価格(路線価ベース)', r.sheet.cost_price, `土地 ${yen(r.sheet.land)} + 建物 ${yen(r.sheet.building)}`,
+      '土地を路線価(地価公示の8割)で見た積算価格で、下の分析シートと同じ値。銀行の担保評価はこちらに近く、売出価格より低いほど融資が出にくい(自己資金を多く求められる)'],
+    ['相続税評価額', r.inherit.total, corr?.applicable ? `区分所有補正率 ${corr.rate.toFixed(4)} を適用` : '土地(路線価の目安)+ 建物',
+      '相続・贈与で課税の基準になる額。土地は路線価 × 面積、建物は固定資産税評価額。分譲マンションは令和6年から区分所有補正を掛ける: 築年数・総階数・所在階・敷地持分から市場価格との乖離を推定し、評価額が市場価格の6割未満なら6割まで引き上げる'],
+    ['固定資産税評価額', r.fixed_total, `土地 ${yen(r.land.fixed)} + 建物 ${yen(r.building.fixed)}`,
+      '固定資産税・都市計画税と、購入時の登録免許税・不動産取得税の基準になる額。土地は公示価格の7割、建物は工事費の6割程度から経年で減らすため、市場価格の4〜6割程度になる'],
+  ].filter(Boolean);
+  $('a_tiles').innerHTML = items.map(([k, x, n, help, flag]) => aTile(k, yen(x), k.startsWith('市場') ? n : `市場価格の${ratio(x)}。${n}`, help, flag)).join('');
+  const S = r.sheet, Y = S.yields, p2 = x => x == null ? '—' : (x < 0 ? '−' : '') + Math.abs(x * 100).toFixed(2) + '%';
+  const ytiles = !S.income ? [] : [
+    ['表面利回り', p2(S.gross_yield_exact), `年間家賃 ${Math.round(S.income / 1e4).toLocaleString()}万円 ÷ ${yen(S.price)}`, '満室の年間家賃 ÷ 購入価格(売出価格)。経費・空室・諸費用を考えない、いちばん単純な利回り'],
+    ['表面利回り(市場価格)', p2(inc.gross_yield_market), `年間家賃 ÷ 推定の市場価格 ${yen(mp)}`, '同じ家賃で、推定の市場価格で買った場合の表面利回り。購入価格の表面利回りより低ければ、相場より安く買えていることになる'],
+    ['実質利回り', p2(Y?.net), `純収益(家賃 − 経費${q.expense_pct}%)÷(購入価格 + 諸費用)`, '経費を引いた年間の純収益 ÷ 購入にかかった総額(物件価格 + 諸費用)。空室とローンは含まない。FCR とも呼ぶ'],
+    ['ローン定数', p2(Y?.loan_constant), `年間返済額 ÷ 借入額(${q.sheet.rate}%・${S.term}年)`, '年間返済額(元金 + 利息)÷ 借入額。借りたお金に対して毎年どれだけ返すかの割合で、金利が低くても期間が短いと高くなる。K% とも呼ぶ'],
+    ['イールドギャップ', Y?.gap == null ? '—' : (Y.gap >= 0 ? '+' : '−') + Math.abs(Y.gap * 100).toFixed(2) + '%', '実質利回り − ローン定数', '実質利回り − ローン定数。プラスなら借りるほど自己資金の利回りが上がり(レバレッジが効く)、マイナスなら借りるほど手元の収支が悪くなる。マイナスで赤',
+      Y?.gap < 0 ? ['bad', 'マイナス(借りるほど不利)'] : null],
+    ['自己資金利回り', p2(Y?.ccr), `満室時CF ÷ 自己資金 ${yen(S.equity)}`, '満室時のキャッシュフロー(家賃 − 経費 − 返済)÷ 自己資金(頭金 + 諸費用)。CCR とも呼ぶ。空室を見込んだ値はシートの出資利回り。マイナスで赤',
+      Y?.ccr < 0 ? ['bad', 'マイナス(満室でも持ち出し)'] : null],
+  ];
+  const M = S.metrics, N = S.normal, yenM = x => (x < 0 ? '−' : '+') + Math.round(Math.abs(x)).toLocaleString() + '円';
+  const mtiles = !M ? [] : [
+    ['月の手残り(満室)', yenM(N.cf / 12), `空室${q.sheet.stress_pct}%なら ${yenM((S.stress_income - S.expense - N.pay) / 12)}/月`, '満室時の家賃 − 経費 − ローン返済 の月額(税引き前)。マイナスは毎月の持ち出し。満室でマイナスなら赤、空室を見込むとマイナスなら黄',
+      N.cf < 0 ? ['bad', '満室でも毎月持ち出し'] : S.stress_income - S.expense - N.pay < 0 ? ['warn', '空室を見込むと持ち出し'] : null],
+    ['DSCR', M.dscr == null ? '—' : M.dscr.toFixed(2) + '倍', '空室を見込んだ純収益 ÷ 年間返済額', '借入の返済余力。空室を見込んだ純収益(家賃 − 空室 − 経費)が年間返済額の何倍か。1倍未満なら家賃で返済をまかなえない。銀行は1.2〜1.3倍以上を目安にすることが多い。1.2倍未満で黄、1倍未満で赤',
+      M.dscr == null ? null : M.dscr < 1 ? ['bad', '1倍未満(家賃で返済できない)'] : M.dscr < 1.2 ? ['warn', '1.2倍未満'] : null],
+    ['損益分岐の入居率', (M.break_even * 100).toFixed(0) + '%', '(経費 + 返済)÷ 満室の家賃', 'この入居率を下回ると手残りがマイナスになる。100%を超えていれば満室でも持ち出し。一般に70〜80%以下なら余裕があるとされる。80%超で黄、100%超で赤',
+      M.break_even > 1 ? ['bad', '100%超(満室でも赤字)'] : M.break_even > 0.8 ? ['warn', '80%超'] : null],
+    ['自己資金の回収年数', M.payback == null ? '回収できない' : M.payback.toFixed(1) + '年', `自己資金 ${yen(S.equity)} ÷ 満室時CF`, '満室時の手残りで、頭金と諸費用を何年で取り戻せるか(税引き前、売却を考えない)。手残りがマイナスなら回収できない。20年超で黄、回収できなければ赤',
+      M.payback == null ? (S.equity > 0 ? ['bad', '手残りがマイナス'] : null) : M.payback > 20 ? ['warn', '20年超'] : null],
+    ['借入 ÷ 積算価格', M.ltv_cost == null ? '—' : (M.ltv_cost * 100).toFixed(0) + '%', `借入 ${yen(S.loan)} ÷ 積算価格(路線価ベース)`, '担保評価に対する借入の割合。100%を超える分は担保が足りない(担保割れ)ので、銀行は自己資金の追加や他の資産の担保を求めやすい。100%超で黄(都心の区分マンションでは珍しくない)',
+      M.ltv_cost > 1 ? ['warn', '100%超(担保割れ)'] : null],
+  ];
+  $('a_metric_tiles').innerHTML = mtiles.map(t => aTile(...t)).join('');
+  $('a_yield_tiles').innerHTML = ytiles.map(t => aTile(...t)).join('');
+  const bars = items.slice().reverse();
+  Plotly.react('chart_appraisal', [{ y: bars.map(b => b[0]), x: bars.map(b => b[1] / 1e4), type: 'bar', orientation: 'h',
+    marker: { color: bars.map(b => b[0].startsWith('市場') ? css('--s2') : css('--s1')) }, hovertemplate: '%{y}: %{x:,.0f}万円<extra></extra>',
+    error_x: { type: 'data', symmetric: false, array: bars.map(b => b[0].startsWith('市場') ? (r.market.pi_high - mp) / 1e4 : 0), arrayminus: bars.map(b => b[0].startsWith('市場') ? (mp - r.market.pi_low) / 1e4 : 0), color: css('--text2') } }],
+    layout({ margin: { l: 150, r: 20, t: 10, b: 48 }, xaxis: { title: { text: '万円' }, rangemode: 'tozero' }, yaxis: { automargin: true },
+      shapes: [{ type: 'line', x0: mp / 1e4, x1: mp / 1e4, yref: 'paper', y0: 0, y1: 1, line: { color: css('--s2'), dash: 'dot', width: 1.5 } }] }), CFG);
+
+  const tsubo = u => `${Math.round(u).toLocaleString()}円/㎡(坪 ${(u * 400 / 121 / 1e4).toFixed(1)}万円)`, b = r.building, L = r.land;
+  const row = (k, x) => `<tr><td style="white-space:normal">${k}</td><td style="white-space:normal">${x}</td></tr>`;
+  $('a_table').innerHTML = [
+    row(`土地の単価(地価公示 ${r.koji.year}年・${r.koji.use})`, tsubo(L.unit)),
+    row('路線価の目安(× 0.8)', tsubo(L.rosenka_unit)),
+    row(q.kind === 'mansion' ? '敷地持分' : '土地面積', `${L.site.toLocaleString()}㎡`),
+    row('土地: 公示価格ベース / 相続税評価 / 固定資産税評価', `${yen(L.koji)} / ${yen(L.inherit)} / ${yen(L.fixed)}`),
+    row(`建物の単価(標準的な建築価額 ${b.cost_year}年・${b.structure})`, `${Math.round(b.unit_cost).toLocaleString()}円/㎡`),
+    row('建物の床面積' + (q.kind === 'mansion' ? `(専有 × ${q.common_ratio})` : ''), `${b.floor_area.toFixed(1)}㎡`),
+    row('再調達原価', yen(b.replace)),
+    row(`建物の積算価格(残存 ${Math.max(0, b.life - v.age)}年 ÷ 耐用年数 ${b.life}年)`, yen(b.value)),
+    row(`建物の固定資産税評価額(× 0.6 × 経年の補正 ${b.fixed_rate.toFixed(2)})`, yen(b.fixed)),
+    corr && (corr.applicable
+      ? row('区分所有補正率', `評価乖離率 ${corr.ratio.toFixed(3)}(総階数指数 ${corr.total_index}、敷地持分狭小度 ${corr.narrow})→ 評価水準 ${corr.level.toFixed(3)} → 補正率 ${corr.rate.toFixed(4)}`)
+      : row('区分所有補正率', '総階数2以下のため対象外')),
+    inc.rent ? row('家賃', `${Math.round(inc.rent).toLocaleString()}円/月${inc.rent_info ? `(統計の推定: ${esc(v.ward)} ${inc.rent_info.bracket} の平均 ${Math.round(inc.rent_info.ward_rent).toLocaleString()}円 × 築年補正)` : '(入力)'}`)
+      : row('家賃', inc.rent_error ? esc(inc.rent_error) : '未入力のため収益価格は出していません'),
+    inc.rent && row('表面利回り', `推定の市場価格で ${(inc.gross_yield_market * 100).toFixed(2)}%` + (inc.gross_yield_ask ? `、売出価格で ${(inc.gross_yield_ask * 100).toFixed(2)}%` : '')),
+    inc.noi && row(`純収益(経費 ${q.expense_pct}% を引いた年額)`, yen(inc.noi)),
+  ].filter(Boolean).join('');
+
+  renderSheet(r, q);
+  $('a_koji_title').textContent = `近くの地価公示の地点(${r.koji.year}年・${r.koji.use})`;
+  $('a_koji').innerHTML = `<tr><th>使う</th><th style="text-align:left">所在地</th><th>価格(円/㎡)</th><th>坪単価</th><th>前年比</th><th>最寄駅</th><th>容積率</th>${r.here ? '<th>距離</th>' : ''}</tr>` +
+    r.koji.points.map(p => `<tr${p.used ? ' class="hl"' : ''}><td><input type="checkbox" data-id="${p.id}" ${p.used ? 'checked' : ''}></td><td style="text-align:left">${esc(p.address)}</td><td>${p.price.toLocaleString()}</td>
+      <td>${(p.price * 400 / 121 / 1e4).toFixed(1)}万円</td><td>${p.change >= 0 ? '+' : ''}${p.change}%</td><td>${esc(p.station)} ${p.station_m.toLocaleString()}m</td><td>${p.far}%</td>${r.here ? `<td>${p.km.toFixed(2)}km</td>` : ''}</tr>`).join('');
+  $('a_koji_note').textContent = r.here
+    ? `地区の代表点からの距離と、駅からの距離の差(物件は徒歩${v.station_min}分 = ${v.station_min * 80}m)の合計が小さい順に並べています。チェックした地点を重みづけ平均して土地の単価にします(初期は上位3地点)。駅前の商業地など条件の違う地点は外してください。`
+    : `地区を指定していないため、${v.ward}の${r.koji.use}の全地点の中央値を土地の単価にしています。チェックで使う地点を絞れます。`;
+  renderAppraisalLinks(r);
+}
+// 収益不動産キャッシュフロー分析シート。行 = [区分, 項目, 中央, 右, 入力の欄('l' 項目 / 'm' 中央 / 'r' 右), 合計行]
+function renderSheet(r, q) {
+  const S = r.sheet, v = r.view, en = x => Math.round(x).toLocaleString() + '円', p1 = x => (x * 100).toFixed(1) + '%', d = new Date();
+  const table = (title, rows) => {
+    let html = '', i = 0;
+    for (const [g, label, mid, right, inp = '', sum] of rows) {
+      const span = g ? rows.slice(i).findIndex(x => x[0] !== g) : 0, first = g && (i === 0 || rows[i - 1][0] !== g);
+      const cell = (k, x, attr = '') => `<td class="${k === 'l' ? 'lbl' : ''}${inp.includes(k) ? ' in' : ''}"${attr}>${x}</td>`;
+      html += `<tr${sum ? ' class="sum"' : ''}>${i === 0 ? `<td class="sec" rowspan="${rows.length}">${title}</td>` : ''}` +
+        (first ? `<td class="grp" rowspan="${span < 0 ? rows.length - i : span}">${g}</td>` : '') +
+        cell('l', label, g ? '' : ' colspan="2"') + cell('m', mid) + cell('r', right) + '</tr>';
+      i++;
+    }
+    return `<table class="sheet"><colgroup><col style="width:2.6em"><col style="width:2.6em"><col><col style="width:26%"><col style="width:28%"></colgroup>${html}</table>`;
+  };
+  const name = $('a_name').value.trim() || `${v.ward}${v.district ?? ''}`;
+  const outline = [
+    [null, '物件名称／査定日', esc(name), `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`, 'm'],
+    [null, '躯体構造／法定耐用年数', q.structure, `${S.life}年`, 'm'],
+    [null, '築年数', `築${v.age}年`, `(残存${S.remain}年)`, 'm'],
+    [null, '容積率', q.sheet.far == null ? '(最も近い地価公示の地点)' : '', `${S.far}%`, 'r'],
+    [null, '物件価格', S.price_from === 'ask' ? '(売出価格)' : '(推定の市場価格)', `<b>${en(S.price)}</b>`, 'r'],
+  ];
+  const cost = [
+    [null, '土地面積' + (q.kind === 'mansion' ? '(敷地持分)' : ''), `${(r.land.site * 0.3025).toFixed(2)}坪`, `${r.land.site.toLocaleString()}㎡`, 'r'],
+    [null, '路線価(単価)', '(地価公示 × 0.8)', `@${Math.round(r.land.rosenka_unit).toLocaleString()}円/㎡`, 'r'],
+    [null, '土地価格', '', en(S.land)],
+    [null, '建物延床面積' + (q.kind === 'mansion' ? `(専有 × ${q.common_ratio})` : ''), '', `${r.building.floor_area.toFixed(2)}㎡`, 'r'],
+    [null, '建築費(単価)', `(国税庁 ${r.building.cost_year}年)`, `@${Math.round(r.building.unit_cost).toLocaleString()}円/㎡`],
+    [null, '遵法性チェック(判定)', `(使用容積率${(S.used_far * 100).toFixed(0)}%)`, S.far_ok ? '<b>O.K.</b>' : '<b class="bad">容積率オーバー</b>'],
+    [null, '建物価格', '', en(S.building)],
+    [null, '　　(参考：解体費)', `@${S.demolish_unit.toLocaleString()}円/坪`, `(${en(S.demolish)})`],
+    [null, '積算価格(土地+建物)', '', en(S.cost_price), '', true],
+  ];
+  let html = table('物件概要', outline) + table('積算価格', cost), note = '';
+  if (!S.income) note = '家賃を入れると(区分マンションは統計から推定できる区なら自動で)、キャッシュフロー分析を表示します。';
+  else {
+    const N = S.normal, R = S.rise, judge = x => `<span class="${{ '×': 'bad', '△': 'warn' }[x.grade] ?? ''}">(返済比率${(x.ratio * 100).toFixed(0)}%) ${x.grade}</span>`,
+      neg = x => x < 0 ? `<span class="bad">${en(x)}</span>` : en(x), occ = `稼働率${100 - q.sheet.stress_pct}%として`;
+    const rows = [
+      [null, '家賃収入(満室ベース)', `${Math.round(S.income / 12).toLocaleString()}円/月`, `${Math.round(S.income).toLocaleString()}円/年`, 'm'],
+      [null, '表面利回り', '', p1(S.gross_yield), '', true],
+      [null, `購入諸費用${q.sheet.cost_pct}%`, '', en(S.cost), 'l'],
+      [null, '融資金額', q.sheet.loan_pct === 100 ? 'フルローン' : q.sheet.loan_pct > 100 ? `オーバーローン(${q.sheet.loan_pct}%)` : `物件価格の${q.sheet.loan_pct}%`, en(S.loan), 'm'],
+      [null, '自己資金(頭金+諸費用)', '', en(S.equity)],
+      ['通常時', '貸出金利', '', `${q.sheet.rate}%`, 'r'],
+      ['通常時', '融資期間', S.term_auto ? (v.age < 17 ? '(築17年未満)' : '(残存耐用年数)') : '', `${S.term}年`, S.term_auto ? '' : 'r'],
+    ];
+    if (S.error) note = S.error;
+    else rows.push(
+      ['通常時', '返済金額(判定)', judge(N), en(N.pay)],
+      ['通常時', `Stress ${q.sheet.stress_pct}% 収入`, occ, en(S.stress_income), 'l'],
+      ['通常時', `経費率${q.expense_pct}%`, '', en(S.expense), 'l'],
+      ['通常時', '満室時CF', '', neg(N.cf)],
+      ['通常時', `Stress ${q.sheet.stress_pct}% CF`, '', neg(N.stress_cf), '', true],
+      [null, '出資利回り', '', S.equity_yield == null ? '—(自己資金なし)' : S.equity_yield < 0 ? `<span class="bad">${p1(S.equity_yield)}</span>` : p1(S.equity_yield)],
+      [null, '投資効率評価(per.1億円)', neg(S.efficiency), `<span class="${{ Bad: 'bad', Passable: 'warn' }[S.efficiency_grade] ?? ''}">${S.efficiency_grade}</span>`, '', true],
+      ['上昇時', 'リスク金利', '', `${q.sheet.risk_rate}%`, 'r'],
+      ['上昇時', '返済金額(判定)', judge(R), en(R.pay)],
+      ['上昇時', '満室時CF', '', neg(R.cf)],
+      ['上昇時', `Stress ${q.sheet.stress_pct}% CF`, occ, neg(R.stress_cf)],
+    );
+    html += table('キャッシュフロー分析', rows);
+  }
+  $('a_sheet').innerHTML = html;
+  $('a_sheet_note').textContent = (note ? note + ' ' : '') +
+    '金額の多くは有効数字3桁に丸めています。返済額は毎月払いの元利均等、融資期間は入れなければ築17年未満なら30年・それ以外は残存耐用年数。返済比率(年間返済額 ÷ 満室の年間家賃)は40%以下◎・45%以下○・55%以下△、投資効率(物件価格1億円あたりの Stress CF)は300万円以上 Excellent・250万円以上 Good・200万円以上 Passable。' +
+    '路線価は近くの地価公示の8割、建築費は国税庁の標準的な建築価額、法定耐用年数は構造ごと(RC・SRC 47年、鉄骨造34年、木造22年)です。';
+}
+function renderAppraisalLinks(r) {
+  const enc = encodeURIComponent, h = r?.here, name = $('a_name').value.trim();
+  const place = r ? `${r.view.city === r.view.ward ? '' : r.view.city.replace('23区', '')}${r.view.ward}${r.view.district ?? ''}` : '';
+  const link = (label, url, desc) => `<li>${label}: <a href="${url}" target="_blank" rel="noopener">${desc}</a></li>`;
+  $('a_links').innerHTML = [
+    link('地図・ストリートビュー', `https://www.google.com/maps/search/?api=1&query=${enc(place)}`, `Google マップで「${esc(place)}」`),
+    link('ハザードマップ', h ? `https://disaportal.gsi.go.jp/maps/?ll=${h.lat},${h.lon}&z=16&base=pale` : 'https://disaportal.gsi.go.jp/', '国土交通省「重ねるハザードマップ」(洪水・高潮・津波・土砂災害)'),
+    link('日当たり', h ? `https://shademap.app/@${h.lat},${h.lon},17z` : 'https://shademap.app/', 'ShadeMap(建物・地形の影を日時ごとに表示)'),
+    link('路線価', 'https://www.rosenka.nta.go.jp/', '国税庁「財産評価基準書」(路線価図)'),
+    link('成約価格', 'http://www.contract.reins.or.jp/search/displayAreaConditionBLogic.do', 'レインズ・マーケット・インフォメーション(地域を選んで成約事例を検索)'),
+    link('取引価格・地価', 'https://www.reinfolib.mlit.go.jp/', '国土交通省「不動産情報ライブラリ」'),
+    link('売却価格の相場', 'https://lifullhomes-satei.jp/price-map/', 'LIFULL HOME\'S 不動産査定「価格マップ」'),
+    link('家賃相場', 'https://suumo.jp/chintai/soba/', 'SUUMO 家賃相場'),
+    link('事故物件', 'https://www.oshimaland.co.jp/', '大島てる'),
+    link('ワンルーム投資の試算', 'https://app.tokyo-1r.com/', 'ワンルームシミュレーション'),
+    ...(name ? [['マンションレビュー'], ['SUUMO ライブラリー'], ['HOME\'S 物件アーカイブ']].map(([site]) =>
+      link(`物件名で検索(${site})`, `https://www.google.com/search?q=${enc(name + ' ' + site)}`, `「${esc(name)} ${site}」を Google で検索`)) : []),
+  ].join('');
+}
+async function initAppraisal() {
+  APPRAISAL_INIT = true;
+  $('a_kind').innerHTML = $('kind').innerHTML; $('a_kind').value = 'mansion';
+  aKindChanged();
+  $('mode-appraisal').addEventListener('change', async e => {
+    const id = e.target.id;
+    if (id === 'a_name') { renderAppraisalLinks(A_LAST); return; }
+    if (e.target.closest('#a_sheet_inputs')) { renderAppraisal(); return; }  // 分析シートの前提だけなら、選んだ地点はそのまま
+    if (e.target.closest('#a_koji')) {
+      A_POINTS = [...document.querySelectorAll('#a_koji input:checked')].map(x => +x.dataset.id);
+    } else {
+      A_POINTS = null;  // 場所・条件を変えたら、地点は近い順に選び直す
+      if (id === 'a_kind') { aKindChanged(); await aCityChanged(); }
+      else if (id === 'a_city') await aCityChanged();
+      else if (id === 'a_ward') await aWardChanged();
+    }
+    renderAppraisal();
+  });
+  $('a_city').value = '東京23区';
+  await aCityChanged('北区', '志茂');  // 既定の場所
+  renderAppraisal();
+}
+
+// 「?」の説明の吹き出し(data-tip)。カーソルを載せるかタップ(フォーカス)で出し、画面の端からはみ出さない位置に置く
+const TIP = document.body.appendChild(Object.assign(document.createElement('div'), { id: 'tip', role: 'tooltip', hidden: true }));
+function showTip(el) {
+  TIP.textContent = el.dataset.tip; TIP.hidden = false;
+  const r = el.getBoundingClientRect(), w = TIP.offsetWidth, h = TIP.offsetHeight;
+  TIP.style.left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), innerWidth - w - 8) + 'px';
+  TIP.style.top = (r.bottom + 6 + h > innerHeight - 8 ? r.top - h - 6 : r.bottom + 6) + 'px';
+}
+for (const [on, off] of [['mouseover', 'mouseout'], ['focusin', 'focusout']]) {
+  document.addEventListener(on, e => { const h = e.target.closest?.('.help[data-tip]'); if (h) showTip(h); });
+  document.addEventListener(off, e => { if (e.target.closest?.('.help[data-tip]')) TIP.hidden = true; });
+}
+addEventListener('scroll', () => { TIP.hidden = true; }, { passive: true });
+
 // ページ上部の切り替え: 都市ごとの回帰分析 / 全国の相場比較 / 市況 / ローン・金利
 document.querySelectorAll('.tabs.modes button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs.modes button').forEach(x => x.setAttribute('aria-selected', x === b));
-  for (const m of ['city', 'national', 'housing', 'loan', 'sim', 'population', 'vacancy', 'long']) $('mode-' + m).hidden = b.dataset.mode !== m;
+  for (const m of ['city', 'national', 'housing', 'loan', 'sim', 'population', 'vacancy', 'long', 'appraisal']) $('mode-' + m).hidden = b.dataset.mode !== m;
   if (b.dataset.mode === 'national' && !MARKET) renderMarket();  // 16都市ぶんの回帰を使うので、初めて開いたときに計算する
   if (b.dataset.mode === 'housing' && !HOUSING) initHousing();
   if (b.dataset.mode === 'loan' && !LOAN) initLoan();
@@ -2239,6 +2629,7 @@ document.querySelectorAll('.tabs.modes button').forEach(b => b.onclick = () => {
   if (b.dataset.mode === 'population' && !POP) initPopulation();
   if (b.dataset.mode === 'vacancy' && !VAC) initVacancy();
   if (b.dataset.mode === 'long' && !LONG) initLong();
+  if (b.dataset.mode === 'appraisal' && !APPRAISAL_INIT) initAppraisal();
   window.dispatchEvent(new Event('resize'));
   if (MAP) MAP.invalidateSize();
   if (POP_MAP) POP_MAP.invalidateSize();
@@ -2270,20 +2661,30 @@ async function renderMarket() {
   st.className = 'note'; st.textContent = '集計中…(初回は各都市の回帰を推定するため10秒ほどかかります)';
   try { MARKET = await api('/api/market', q); }
   catch (e) { st.textContent = e.message; st.className = 'err'; return; }
-  const m = MARKET, rows = m.rows, man1 = v => (v / 1e4).toFixed(1);
   st.className = 'note';
-  st.textContent = `該当 ${m.n.toLocaleString()}件を${m.by === 'city' ? '都市' : '区'}別に集計。`;
+  st.textContent = `該当 ${MARKET.n.toLocaleString()}件を${MARKET.by === 'city' ? '都市' : '区'}別に集計。`;
+  drawMarket();
+}
+// 単価の単位(㎡/坪)。切り替えは表示だけなので集計し直さない
+const TSUBO_M2 = 400 / 121;
+function marketUnit() {
+  const tsubo = $('m_unit').value === 'tsubo';
+  return { k: tsubo ? TSUBO_M2 / 1e4 : 1 / 1e4, label: tsubo ? '坪単価' : '㎡単価', per: tsubo ? '万円/坪' : '万円/㎡' };
+}
+function drawMarket() {
+  const m = MARKET, rows = m.rows, u = marketUnit(), man1 = v => (v * u.k).toFixed(1);
+  for (const e of document.querySelectorAll('.m_unit_lbl')) e.textContent = u.label;
   const r = rows.slice().reverse();
   $('chart_market').style.height = Math.max(320, r.length * 20 + 80) + 'px';
-  Plotly.react('chart_market', [{ y: r.map(x => x.name), x: r.map(x => x.unit_price / 1e4), type: 'bar', orientation: 'h', marker: { color: css('--s1') },
-    customdata: r.map(x => [x.price / 1e4, x.n]), hovertemplate: '%{y}: %{x:.1f}万円/㎡<br>中央値 %{customdata[0]:,.0f}万円 (%{customdata[1]:,}件)<extra></extra>' }],
-    layout({ margin: { l: 120, r: 20, t: 10, b: 48 }, xaxis: { title: { text: '㎡単価の中央値(万円/㎡)' } }, yaxis: { tickfont: { size: 10 }, automargin: true }, hovermode: 'closest' }), CFG);
+  Plotly.react('chart_market', [{ y: r.map(x => x.name), x: r.map(x => x.unit_price * u.k), type: 'bar', orientation: 'h', marker: { color: css('--s1') },
+    customdata: r.map(x => [x.price / 1e4, x.n]), hovertemplate: `%{y}: %{x:.1f}${u.per}<br>中央値 %{customdata[0]:,.0f}万円 (%{customdata[1]:,}件)<extra></extra>` }],
+    layout({ margin: { l: 120, r: 20, t: 10, b: 48 }, xaxis: { title: { text: `${u.label}の中央値(${u.per})` } }, yaxis: { tickfont: { size: 10 }, automargin: true }, hovermode: 'closest' }), CFG);
   fillSelect($('m_series'), rows.map(x => [x.name, x.name]), rows.some(x => x.name === $('m_series').value) ? $('m_series').value : $('city').value);
   const sd = m.standard;
   const stdHead = sd ? `<th>推定価格</th><th>想定家賃(月)</th><th>表面利回り</th>` : '';
   $('market_table').innerHTML =
     `<tr><th rowspan="2">${m.by === 'city' ? '都市' : '区'}</th><th colspan="6" class="grp">条件に合う実取引</th>${sd ? `<th colspan="3" class="grp">標準物件で揃えた比較(築${sd.age}年・${sd.area}㎡・駅徒歩${sd.station_min}分・${sd.year}年)</th>` : ''}</tr>` +
-    `<tr><th>件数</th><th>価格 中央値</th><th>25%〜75%</th><th>㎡単価</th><th>築年数</th><th>面積</th>${stdHead}</tr>` +
+    `<tr><th>件数</th><th>価格 中央値</th><th>25%〜75%</th><th>${u.label}</th><th>築年数</th><th>面積</th>${stdHead}</tr>` +
     rows.map(x => `<tr data-name="${x.name}"><td>${x.name}</td><td>${x.n.toLocaleString()}</td><td>${yen(x.price)}</td><td>${yen(x.price_p25)}〜${yen(x.price_p75)}</td><td>${man1(x.unit_price)}万円</td>
       <td>${x.age.toFixed(0)}年</td><td>${x.area.toFixed(0)}㎡</td>${sd ? `<td>${x.std_price ? yen(x.std_price) : '—'}</td><td>${x.std_rent ? Math.round(x.std_rent).toLocaleString() + '円' : '—'}</td><td>${x.std_gross ? (x.std_gross * 100).toFixed(1) + '%' : '—'}</td>` : ''}</tr>`).join('');
   $('market_note').textContent = sd
@@ -2304,17 +2705,17 @@ function renderMarketYear() {
   for (const tr of document.querySelectorAll('#market_table tr[data-name]')) tr.classList.toggle('hl', tr.dataset.name === $('m_series').value);
   Plotly.restyle('chart_market', { 'marker.color': [names.map(n => n === $('m_series').value ? css('--s2') : css('--s1'))] });
   // 全地域の線を薄い灰色で描き、選んだ1地域だけ色を付ける(16色を使い分けると判別できないため)
-  const hi = $('m_series').value || MARKET.rows[0].name;
+  const hi = $('m_series').value || MARKET.rows[0].name, u = marketUnit();
   const line = (x, on) => {
     const ys = Object.keys(x.by_year).map(Number).filter(y => x.n_by_year[y] >= 20).sort((a, b) => a - b);
-    return { x: ys, y: ys.map(y => x.by_year[y] / 1e4), mode: on ? 'lines+markers+text' : 'lines', name: x.name,
+    return { x: ys, y: ys.map(y => x.by_year[y] * u.k), mode: on ? 'lines+markers+text' : 'lines', name: x.name,
       text: ys.map((_, i) => i === ys.length - 1 ? x.name : ''), textposition: 'top left', textfont: { color: css('--text'), size: 12 },
       line: { color: on ? css('--s2') : css('--muted'), width: on ? 2.5 : 1 }, opacity: on ? 1 : 0.55, marker: { size: 6 },
-      hovertemplate: `${x.name} %{x}年: %{y:.1f}万円/㎡<extra></extra>` };
+      hovertemplate: `${x.name} %{x}年: %{y:.1f}${u.per}<extra></extra>` };
   };
   const rows = MARKET.rows;
   Plotly.react('chart_market_year', [...rows.filter(x => x.name !== hi).map(x => line(x, false)), ...rows.filter(x => x.name === hi).map(x => line(x, true))],
-    layout({ xaxis: { dtick: 2, tickangle: 0 }, yaxis: { title: { text: '㎡単価の中央値(万円/㎡)' }, rangemode: 'tozero' }, showlegend: false, hovermode: 'closest' }), CFG);
+    layout({ xaxis: { dtick: 2, tickangle: 0 }, yaxis: { title: { text: `${u.label}の中央値(${u.per})` }, rangemode: 'tozero' }, showlegend: false, hovermode: 'closest' }), CFG);
 }
 
 document.querySelectorAll('.tabs:not(.modes) button').forEach(b => b.onclick = () => {
@@ -2347,6 +2748,7 @@ document.querySelectorAll('.tabs:not(.modes) button').forEach(b => b.onclick = (
     renderMarket();
   });
   $('m_series').addEventListener('change', renderMarketYear);
+  $('m_unit').addEventListener('change', () => { if (MARKET) drawMarket(); });
   for (const id of COST_IDS) $(id).addEventListener('change', renderYield);
   $('l_preset').addEventListener('change', () => {
     const p = LOAN_PRESETS[$('l_preset').value];

@@ -37,6 +37,23 @@ def test_koji_points(tmp_path):
     assert d["cont_1984"].tolist() == [True, False] and d["cont_1985"].tolist() == [True, False]
 
 
+def test_koji_latest(tmp_path):
+    """物件の評価タブ用: 住宅地・商業地の地点の最新価格。区は所在地の先頭(都道府県名を外す)が取引データの区名に一致するもの。"""
+    def feature(use, addr, price):
+        props = {"L01_002": use, "L01_007": 2026, "L01_008": price, "L01_009": 1.5, "L01_025": addr, "L01_048": "駅", "L01_050": 300, "L01_058": 200}
+        return {"type": "Feature", "properties": props, "geometry": {"type": "Point", "coordinates": [135.7, 35.0]}}
+    feats = [feature("000", "京都府\u3000京都市北区紫野石龍町２９番７", 300000),  # 「京都府」を「京都」+「府」と切らない
+             feature("005", "東京都\u3000北区赤羽１丁目８番１０", 5700000),
+             feature("009", "東京都\u3000北区志茂２丁目", 400000),  # 工業地は除く
+             feature("000", "東京都\u3000八王子市元本郷町", 200000)]  # 取引データにない市
+    p = tmp_path / "L01.zip"
+    with zipfile.ZipFile(p, "w") as z:
+        z.writestr("L01/L01.geojson", json.dumps({"type": "FeatureCollection", "features": feats}))
+    d = etl.koji_latest(p, ["北区", "京都市北区"])
+    assert d["ward"].tolist() == ["京都市北区", "北区"] and d["use"].tolist() == ["住宅地", "商業地"]
+    assert d["price"].tolist() == [300000, 5700000] and d["year"].tolist() == [2026, 2026] and d.loc[0, "lat"] == 35.0
+
+
 def test_koji_index(monkeypatch):
     """継続地点の変化率の対数平均をつなぎ、最新年=100。比べられる地点が少ない年より前は NaN。"""
     monkeypatch.setattr(etl, "KOJI_MIN_POINTS", 2)

@@ -1,8 +1,9 @@
 // 画面から呼ぶ分析処理 (モデル推定のキャッシュ、断面プロファイル、将来予測、利回り、金利と価格指数、相場、市況、ローン、人口、長期推移)。
 // Web Worker (worker.js) の中で動く。
 
-import { loadAll, loadBoundaries, loadDataset, loadLoan, loadLong, loadMarket, loadMeta, loadPopulation, loadRates, loadVacancy } from './data.js';
+import { loadAll, loadAppraisal, loadBoundaries, loadDataset, loadLoan, loadLong, loadMarket, loadMeta, loadPopulation, loadRates, loadVacancy } from './data.js';
 import { FE_PREFIX, ageEffect, coef, fit, predict, predictRows, table } from './model.js';
+import { cholSolve, cholesky } from './linalg.js';
 import { erfc, interp, linspace, median, quantile, rng, sample } from './stats.js';
 
 const MAX_POINTS = 2500;          // 散布図に返す実取引の上限
@@ -167,6 +168,50 @@ const VARY = {
   year: ['取引年', a => [...new Set(a.year)].sort((x, y) => x - y)],
 };
 
+const TREND_MERGE_PT = 1;  // 隣り合う区間の年率の差がこれ(%ポイント)未満なら、折れ点を減らしてまとめる
+
+/** ln(価格) を、折れ点が最大2つの連続した折れ線で近似し、区間ごとの年率を出す(重み w = その値の取引件数)。
+ *  折れ点は x の値から重みつき残差平方和が最小になる組を総当たりで選び、各区間は minLen 以上の幅にする。
+ *  返り値: segments = [{ from, to, rate(年率), share(取引の割合) }]、fit = 各 x での折れ線の ln(価格)。 */
+export function segmentTrend(x, y, w, minLen = 3) {
+  const n = x.length, x0 = x[0], x1 = x[n - 1];
+  const solve = knots => {
+    const k = knots.length + 2, row = xi => [1, xi - x0, ...knots.map(b => Math.max(0, xi - b))];
+    const A = new Float64Array(k * k), b = new Float64Array(k);
+    for (let i = 0; i < n; i++) {
+      const r = row(x[i]);
+      for (let p = 0; p < k; p++) { b[p] += w[i] * r[p] * y[i]; for (let q = 0; q < k; q++) A[p * k + q] += w[i] * r[p] * r[q]; }
+    }
+    const beta = cholSolve(cholesky(A, k), k, b), fit = x.map(xi => row(xi).reduce((s, v, p) => s + v * beta[p], 0));
+    return { knots, beta, fit, sse: fit.reduce((s, f, i) => s + w[i] * (y[i] - f) ** 2, 0) };
+  };
+  const candidates = x.filter(b => b - x0 >= minLen && x1 - b >= minLen);
+  const best = nKnots => {
+    let out = null;
+    const tryKnots = knots => { const s = solve(knots); if (!out || s.sse < out.sse) out = s; };
+    if (nKnots === 0) tryKnots([]);
+    else if (nKnots === 1) for (const b of candidates) tryKnots([b]);
+    else for (const b1 of candidates) for (const b2 of candidates) if (b2 - b1 >= minLen) tryKnots([b1, b2]);
+    return out;
+  };
+  const total = w.reduce((s, v) => s + v, 0);
+  for (let nKnots = 2; nKnots >= 0; nKnots--) {
+    const s = best(nKnots);
+    if (!s) continue;  // 範囲が狭く折れ点を置けない
+    const edges = [x0, ...s.knots, x1];
+    let slope = 0;
+    const segments = edges.slice(1).map((to, j) => {
+      slope += s.beta[j + 1];
+      const from = edges[j], last = j === edges.length - 2;
+      const share = x.reduce((a, xi, i) => a + (xi >= from && (last ? xi <= to : xi < to) ? w[i] : 0), 0) / total;
+      return { from, to, rate: Math.expm1(slope), share };
+    });
+    if (nKnots === 0 || segments.every((g, j) => j === 0 || Math.abs(g.rate - segments[j - 1].rate) * 100 >= TREND_MERGE_PT)) return { segments, fit: s.fit };
+  }
+}
+
+const TREND_AGE_Q = 0.99;  // 築年数の年率は、取引の99%が収まる築年数までで求める(古い物件は件数が少なく、1年刻みの係数がぶれるため)
+
 /** 指定した断面(他の条件を固定して1変数だけ動かす)での推定価格曲線と、近い条件の実取引。 */
 export async function profile({ fit: p, vary, property: input }) {
   if (!VARY[vary]) throw new Error(`vary が不正です: ${vary}`);
@@ -188,7 +233,15 @@ export async function profile({ fit: p, vary, property: input }) {
     && (vary === 'station_min' || Math.abs(c.station_min[r] - view.station_min) <= 5) && (vary === 'year' || Math.abs(year(ds, r) - view.year) <= 2));
   near = sample(near, MAX_POINTS, 0);
   const fixed = { ...view }; delete fixed[vary];
-  return { vary, label, x: grid, ...out, fixed, district_effect: prop.district >= 0 ? f.gamma[prop.district] : 0,
+  let trend = null;
+  if (vary === 'age' || vary === 'year') {
+    const xs = column(vary), count = new Map(), maxX = vary === 'age' ? Math.round(quantile(xs, TREND_AGE_Q)) : Infinity;
+    for (const v of xs) count.set(v, (count.get(v) ?? 0) + 1);
+    const idx = grid.map((_, i) => i).filter(i => grid[i] <= maxX && count.get(grid[i]));
+    const t = segmentTrend(idx.map(i => grid[i]), idx.map(i => Math.log(out.price[i])), idx.map(i => count.get(grid[i])));
+    trend = { segments: t.segments, x: idx.map(i => grid[i]), price: t.fit.map(Math.exp) };
+  }
+  return { vary, label, x: grid, ...out, fixed, trend, district_effect: prop.district >= 0 ? f.gamma[prop.district] : 0,
     points: { x: near.map(r => vary === 'year' ? year(ds, r) : c[vary][r]), price: near.map(r => yen(ds, r)) }, n_points: near.length };
 }
 
@@ -542,6 +595,12 @@ export function loanCalc({ principal, rate, years, method = 'annuity' }) {
 
 /** 仲介手数料の上限(税込)。400万円超の速算式 (価格 × 3% + 6万円) に消費税10%。 */
 const brokerageFee = price => (price * 0.03 + 6e4) * 1.1;
+// 印紙税(印紙税法 別表第一 第1号文書)。[記載金額の上限(円), 税額(円)]。売買契約書は令和9年3月31日までの軽減税率、金銭消費貸借契約書(ローン)は本則
+const STAMP_SALE = [[1e4, 0], [5e5, 200], [1e6, 500], [5e6, 1000], [1e7, 5000], [5e7, 1e4], [1e8, 3e4], [5e8, 6e4], [1e9, 16e4], [5e9, 32e4], [Infinity, 48e4]];
+const STAMP_LOAN = [[1e4, 0], [1e5, 200], [5e5, 400], [1e6, 1000], [5e6, 2000], [1e7, 1e4], [5e7, 2e4], [1e8, 6e4], [5e8, 1e5], [1e9, 2e5], [5e9, 4e5], [Infinity, 6e5]];
+const stampOf = (table, amount) => amount > 0 ? table.find(([upTo]) => amount <= upTo)[1] : 0;
+/** 購入時の印紙税: 売買契約書(買主の1通)と、ローンの金銭消費貸借契約書。 */
+export const stampTax = (price, loan) => stampOf(STAMP_SALE, price) + stampOf(STAMP_LOAN, loan);
 /** 年ごとのキャッシュフロー(0年目=購入時)の内部収益率。−99%〜1000%で符号が変わらず求まらなければ null。 */
 function irr(flows) {
   if (flows.every(v => v === 0)) return null;  // 収支がすべて0なら利回りは定義できない
@@ -569,7 +628,7 @@ function floatingLoan(principal, rate, years, rise, riseYears) {
 }
 // 収支シミュレーションの内訳の項目(金額は円。_pct は%、_months は家賃の何か月分)
 const SIM_KEYS = {
-  purchase: ['loan_fee_pct', 'scrivener', 'registration_pct', 'stamp', 'acquisition_tax_pct', 'fire_insurance', 'settlement'],
+  purchase: ['loan_fee_pct', 'scrivener', 'registration_pct', 'acquisition_tax_pct', 'fire_insurance', 'settlement'],
   running: ['management', 'repair_reserve', 'rental_mgmt_pct', 'property_tax', 'equipment', 'insurance', 'earthquake_insurance', 'accountant'],
   turnover: ['interval_years', 'restoration', 'move_out', 'key', 'utilities_month', 'ad_months', 'agent_months', 'free_rent_months', 'vacancy_months'],
   risk: ['rate_rise_pct', 'rate_rise_years', 'rate_override_pct', 'repair_rise_pct', 'management_rise_pct'],
@@ -650,7 +709,7 @@ export function cashflowSim(q) {
 
   const loan = price * (1 - down_pct / 100), rent = rent_month * units;
   const init = { down: price - loan, brokerage: brokerage ? brokerageFee(price) : 0, loan_fee_pct: loan * purchase.loan_fee_pct / 100, scrivener: purchase.scrivener,
-    registration_pct: price * purchase.registration_pct / 100, stamp: purchase.stamp, acquisition_tax_pct: price * purchase.acquisition_tax_pct / 100,
+    registration_pct: price * purchase.registration_pct / 100, stamp: stampTax(price, loan), acquisition_tax_pct: price * purchase.acquisition_tax_pct / 100,
     fire_insurance: purchase.fire_insurance, settlement: purchase.settlement };
   const initial = sum(Object.values(init));
   // 1年目の内訳(画面のカード)
@@ -945,7 +1004,146 @@ export async function longRates() {
     inflation: { years: L.years.slice(1), values: L.years.slice(1).map((_, i) => cpi[i] == null || cpi[i + 1] == null ? null : (cpi[i + 1] / cpi[i] - 1) * 100) } };
 }
 
+// ---- 物件の評価 ----
+/** 居住用の区分所有財産(分譲マンション)の区分所有補正率(令和6年1月以降の相続・贈与。国税庁タックスアンサー No.4667)。
+ *  評価乖離率 = 築年数×△0.033 + 総階数指数×0.239 + 所在階×0.018 + 敷地持分狭小度×△1.195 + 3.220、評価水準 = 1 ÷ 評価乖離率。
+ *  水準が0.6未満なら 乖離率×0.6、0.6〜1なら補正なし(1)、1超なら 乖離率。地階を除く総階数が2以下の建物は対象外。 */
+export function condoCorrection({ age, floors, floor, site_area, area }) {
+  if (floors <= 2) return { applicable: false, rate: 1 };
+  const trunc3 = v => Math.floor(v * 1000 + 1e-9) / 1000, ceil3 = v => Math.ceil(v * 1000 - 1e-9) / 1000;  // 小数点以下第4位を切り捨て・切り上げ
+  const totalIndex = Math.min(1, trunc3(floors / 33)), narrow = ceil3(site_area / area);
+  const ratio = Math.ceil(age) * -0.033 + totalIndex * 0.239 + Math.max(0, floor) * 0.018 + narrow * -1.195 + 3.220, level = 1 / ratio;
+  const rate = ratio <= 0 ? 0 : level < 0.6 ? ratio * 0.6 : level <= 1 ? 1 : ratio;
+  return { applicable: true, ratio, level, rate, total_index: totalIndex, narrow };
+}
+
+const BUILDING_LIFE = { RC: 47, SRC: 47, 鉄骨造: 34, 木造: 22 };  // 法定耐用年数(住宅用。鉄骨造は骨格材の肉厚4mm超)
+const COST_COLUMN = { RC: 'rc', SRC: 'src', 鉄骨造: 'steel', 木造: 'wood' };  // 建物の標準的な建築価額表の列
+const ROSENKA_RATIO = 0.8, FIXED_LAND_RATIO = 0.7;  // 路線価・固定資産税評価額(土地)は、地価公示の価格のおおむね8割・7割を目安に定められる
+const FIXED_BUILDING_RATIO = 0.6;  // 新築の建物の固定資産税評価額は工事費の5〜7割程度とされる。その中ほど
+const FIXED_BUILDING_FLOOR = 0.2;  // 固定資産評価の経年減点補正率の下限
+const KOJI_NEAR = 3, KOJI_LIST = 10;  // 単価の推定に使う地価公示の地点数と、表に出す地点数
+const WALK_M_PER_MIN = 80;  // 徒歩1分 = 80m(不動産の表示に関する公正競争規約)
+
+// 収益不動産キャッシュフロー分析シートの判定の基準
+const DEMOLISH_PER_TSUBO = { RC: 80000, SRC: 80000, 鉄骨造: 50000, 木造: 40000 };  // 解体費(円/坪)。近年の相場(木造3〜5万、鉄骨造4〜6万、RC 6〜10万)の中ほど
+const SHEET_LOAN_YEARS_NEW = 30, SHEET_NEW_AGE = 17;  // 築17年未満は融資期間30年、それ以外は残存耐用年数
+const REPAY_GRADES = [[0.40, '◎'], [0.45, '○'], [0.55, '△'], [Infinity, '×']];  // 返済比率(年間返済額 ÷ 満室の年間家賃)
+const EFFICIENCY_GRADES = [[3e6, 'Excellent'], [2.5e6, 'Good'], [2e6, 'Passable'], [-Infinity, 'Bad']];  // 物件価格1億円あたりの Stress CF
+const TSUBO_PER_M2 = 0.3025;
+
+/** 有効数字3桁に丸める(シートの ROUND(x, 3 − 整数部の桁数))。 */
+export const sig3 = x => {
+  if (!x) return 0;
+  const f = 10 ** (String(Math.trunc(Math.abs(x))).length - 3);
+  return Math.sign(x) * Math.round(Math.abs(x) / f) * f;
+};
+/** 毎月払いの元利均等の年間返済額。 */
+const annualPayment = (rate, years, principal) => 12 * (rate ? principal * (rate / 12) / (1 - (1 + rate / 12) ** (-years * 12)) : principal / (years * 12));
+
+/** 収益不動産キャッシュフロー分析シート。返済額は毎月払いの元利均等の12か月分。
+ *  price: 物件価格、rent: 満室の月額家賃、cost_rate: 購入諸費用率、loan_ratio: 融資額 ÷ 物件価格(1 = フルローン、諸費用も借りるなら1超)、
+ *  rate: 貸出金利、term: 融資期間(年。null なら築17年未満は30年、それ以外は残存耐用年数)、stress: 空室のストレス、expense: 経費率(家賃に対する割合)、risk_rate: 金利上昇時の金利。 */
+export function cfSheet(s) {
+  const life = BUILDING_LIFE[s.structure], remain = life - s.age, price = sig3(s.price);
+  const land = sig3(s.land_area * s.rosenka);
+  const building = remain > 0 ? sig3(s.floor_area * s.build_unit * remain / life) : 0;
+  const demolish = sig3(s.floor_area * TSUBO_PER_M2 * DEMOLISH_PER_TSUBO[s.structure]);
+  const sheet = { price, life, remain, land, building, demolish, demolish_unit: DEMOLISH_PER_TSUBO[s.structure], cost_price: sig3(land + building), used_far: s.floor_area / s.land_area };
+  sheet.far_ok = s.far == null ? null : s.far > sheet.used_far;
+  if (!s.rent) return sheet;
+  const income = s.rent * 12, stressIncome = Math.round(income * (1 - s.stress)), expense = Math.round(income * s.expense);
+  const cost = sig3(price * s.cost_rate), loan = Math.round(price * s.loan_ratio), equity = price + cost - loan;
+  const term = s.term ?? (s.age < SHEET_NEW_AGE ? SHEET_LOAN_YEARS_NEW : remain);
+  Object.assign(sheet, { income, gross_yield: Math.round(income / price * 1000) / 1000, gross_yield_exact: income / price, cost, loan, equity, term, term_auto: s.term == null, stress_income: stressIncome, expense });
+  if (term <= 0) return { ...sheet, error: `残存耐用年数が${remain}年のため融資期間を決められません。融資期間を入れてください。` };
+  const scenario = rate => {
+    const pay = Math.round(annualPayment(rate, term, loan)), ratio = pay / income;
+    return { rate, pay, ratio, grade: REPAY_GRADES.find(([t]) => ratio <= t)[1], cf: income - pay - expense, stress_cf: sig3(stressIncome - pay - expense) };
+  };
+  const normal = scenario(s.rate), efficiency = sig3(normal.stress_cf * 1e8 / price);
+  // 実質利回り(FCR) = 純収益 ÷ (購入価格 + 諸費用)、ローン定数(K) = 年間返済額 ÷ 借入額、自己資金利回り(CCR) = 満室時CF ÷ 自己資金
+  const net = (income - expense) / (price + cost), k = loan > 0 ? normal.pay / loan : null;
+  const yields = { net, loan_constant: k, gap: k == null ? null : net - k, ccr: equity > 0 ? normal.cf / equity : null };
+  // DSCR = 空室を見込んだ純収益 ÷ 年間返済額、損益分岐の入居率 = (経費 + 返済)÷ 満室の家賃、回収年数 = 自己資金 ÷ 満室時CF、
+  // 担保評価に対する借入 = 借入額 ÷ 積算価格(路線価ベース)
+  const metrics = { dscr: normal.pay > 0 ? (stressIncome - expense) / normal.pay : null, break_even: (expense + normal.pay) / income,
+    payback: equity > 0 && normal.cf > 0 ? equity / normal.cf : null, ltv_cost: sheet.cost_price > 0 ? loan / sheet.cost_price : null };
+  return { ...sheet, normal, yields, metrics, rise: scenario(s.risk_rate), equity_yield: equity > 0 ? normal.stress_cf / equity : null,
+    efficiency, efficiency_grade: EFFICIENCY_GRADES.find(([t]) => efficiency >= t)[1] };
+}
+
+const distanceKm = (a, b) => {
+  const r = Math.PI / 180, x = (b.lon - a.lon) * r * Math.cos((a.lat + b.lat) / 2 * r), y = (b.lat - a.lat) * r;
+  return Math.hypot(x, y) * 6371;
+};
+
+/** ある物件の各種の価格・評価額の目安。市場価格は回帰の推定、土地は近くの地価公示、建物は国税庁の標準的な建築価額から出す。 */
+export async function appraisal(q) {
+  const m = await loadMeta(), A = await loadAppraisal(), f = await getFit({ city: q.city, kind: q.kind });
+  if (!COST_COLUMN[q.structure]) throw new Error('構造を選んでください。');
+  const { view, prop } = property(f, m, { ward: q.ward, district: q.district, age: q.age, area: q.area, land_area: q.land_area, station_min: q.station_min, structure: q.structure });
+  const { mu, se } = predict(f, prop), pse = Math.hypot(se, f.rmse);
+  const market = { price: Math.exp(mu), pi_low: Math.exp(mu - 1.96 * pse), pi_high: Math.exp(mu + 1.96 * pse), year: view.year };
+
+  // 土地の単価: 地価公示の地点(同じ用途)のうち、物件(地区の代表点)との距離と、駅からの距離の差の合計(km)が小さいものを、その逆数で重みづけ平均する。
+  // 地区を指定しないときは区の地点の中央値。q.points(地点の番号)で使う地点を選び直せる
+  const P = A.points, use = A.uses.indexOf(q.use), d = prop.district >= 0 ? f.ds.districts[prop.district] : null;
+  const here = d?.lat != null ? { lat: d.lat, lon: d.lon } : null, walkM = view.station_min * WALK_M_PER_MIN;
+  const score = i => distanceKm(here, { lat: P.lat[i], lon: P.lon[i] }) + Math.abs(P.station_m[i] - walkM) / 1000;
+  let cand = P.price.map((_, i) => i).filter(i => P.use[i] === use && (here || A.wards[P.ward[i]] === view.ward));
+  if (!cand.length) throw new Error(`${view.ward} には地価公示の${q.use}の地点がありません。用途を切り替えてください。`);
+  cand = here ? cand.map(i => [i, score(i)]).sort((a, b) => a[1] - b[1]) : cand.map(i => [i, null]);
+  const picked = new Set(q.points ?? []), used = picked.size ? cand.filter(([i]) => picked.has(i)) : here ? cand.slice(0, KOJI_NEAR) : cand;
+  if (!used.length) throw new Error('単価に使う地価公示の地点を1つ以上選んでください。');
+  let unit;
+  if (here) {
+    const w = used.map(([, sc]) => 1 / Math.max(sc, 0.1));
+    unit = used.reduce((s, [i], k) => s + w[k] * P.price[i], 0) / w.reduce((s, v) => s + v, 0);
+  } else unit = median(used.map(([i]) => P.price[i]));
+  const usedSet = new Set(used.map(([i]) => i));
+  const shown = here ? [...cand.slice(0, KOJI_LIST), ...used.filter(([i]) => !cand.slice(0, KOJI_LIST).some(([j]) => j === i))] : cand;
+  const points = shown.map(([i, sc]) => ({ id: i, address: P.address[i], price: P.price[i], change: P.change[i], station: P.station[i], station_m: P.station_m[i], far: P.far[i],
+    km: here ? distanceKm(here, { lat: P.lat[i], lon: P.lon[i] }) : null, score: sc, used: usedSet.has(i) }));
+
+  // 土地(敷地): 区分マンションは敷地持分、それ以外は土地面積
+  const site = q.kind === 'mansion' ? q.site_area : view.land_area;
+  if (!(site > 0)) throw new Error('敷地の面積(区分マンションは敷地持分)を入れてください。');
+  const land = { site, unit, koji: unit * site, rosenka_unit: unit * ROSENKA_RATIO, inherit: unit * ROSENKA_RATIO * site, fixed: unit * FIXED_LAND_RATIO * site };
+
+  // 建物: 再調達原価 = 最新年の標準的な建築価額 × 床面積(区分マンションは専有面積 × 共用部分を含む倍率)
+  const C = A.building_cost, last = C.year.length - 1, life = BUILDING_LIFE[q.structure];
+  const floorArea = q.kind === 'mansion' ? view.area * q.common_ratio : view.area, unitCost = C[COST_COLUMN[q.structure]][last] * 1000, replace = unitCost * floorArea;
+  const remain = Math.max(0, 1 - view.age / life);
+  const fixedRate = Math.max(FIXED_BUILDING_FLOOR, 1 - (1 - FIXED_BUILDING_FLOOR) * view.age / life);
+  const building = { structure: q.structure, unit_cost: unitCost, cost_year: C.year[last], floor_area: floorArea, life, replace, remain, value: replace * remain,
+    fixed_rate: fixedRate, fixed: replace * FIXED_BUILDING_RATIO * fixedRate };
+
+  // 相続税評価額: 土地は路線価の目安 × 面積(補正なし)、建物は固定資産税評価額 × 1.0。分譲マンションは区分所有補正率を掛ける
+  const correction = q.kind === 'mansion' ? condoCorrection({ age: view.age, floors: q.floors, floor: q.floor, site_area: site, area: view.area }) : null;
+  const inherit = { land: land.inherit, building: building.fixed, correction, total: (land.inherit + building.fixed) * (correction?.rate ?? 1) };
+
+  // 収益価格 = 年間家賃 × (1 − 経費率) ÷ 還元利回り。家賃を指定しない区分マンションは統計の想定家賃
+  let rent = q.rent || null, rentInfo = null, rentError = null;
+  if (!rent && q.kind === 'mansion') {
+    try { const r = estimatedRent(m, view.ward, view.city, view.area, view.age); rent = r.rent; rentInfo = r.info; } catch (e) { rentError = e.message; }
+  }
+  const noi = rent ? rent * 12 * (1 - q.expense_pct / 100) : null;
+  const income = { rent, rent_info: rentInfo, rent_error: rentError, noi, price: noi ? noi / (q.cap_rate / 100) : null,
+    gross_yield_ask: rent && q.ask_price ? rent * 12 / q.ask_price : null, gross_yield_market: rent ? rent * 12 / market.price : null };
+
+  // 分析シート: 売値は売出価格(なければ推定の市場価格)、路線価・建築単価・容積率(指定しなければ単価に使った最も近い地価公示の地点)はこの画面の値
+  const S = q.sheet, far = S.far ?? points.find(p => p.used).far;
+  const sheet = { ...cfSheet({ price: q.ask_price || market.price, structure: q.structure, age: view.age, far: far / 100,
+    land_area: site, rosenka: land.rosenka_unit, floor_area: floorArea, build_unit: unitCost, rent, cost_rate: S.cost_pct / 100, loan_ratio: S.loan_pct / 100, rate: S.rate / 100,
+    term: S.term, stress: S.stress_pct / 100, expense: q.expense_pct / 100, risk_rate: S.risk_rate / 100 }),
+    price_ask: q.ask_price || market.price, price_from: q.ask_price ? 'ask' : 'market', far };
+
+  return { view, market, here, sheet, koji: { year: A.koji_year, use: q.use, unit, points, by: here ? 'near' : 'ward' },
+    land, building, inherit, fixed_total: land.fixed + building.fixed, cost_price: land.koji + building.value, income, ask_price: q.ask_price || null };
+}
+
 export const routes = { meta, fit: fitSummary, profile, forecast, yield: investmentYield, rates, districts, 'district-map': districtMap, population: populationSeries, market,
   'housing-market': housingMarket, 'housing-national': housingNational, loan: loanOverview, repayment, 'loan-calc': loanCalc, cashflow: cashflowSim,
   long: longTerm, 'long-rates': longRates, 'long-yield': longYield, 'population-area': populationArea, 'population-compare': populationCompare, 'population-map': populationMap, 'population-geo': populationGeo,
-  'vacancy-map': vacancyMap, 'vacancy-area': vacancyArea, 'vacancy-compare': vacancyCompare };
+  'vacancy-map': vacancyMap, 'vacancy-area': vacancyArea, 'vacancy-compare': vacancyCompare, appraisal };

@@ -337,6 +337,21 @@ CITIES_NORTH_TO_SOUTH = ["札幌市", "仙台市", "さいたま市", "千葉市
                          "堺市", "神戸市", "広島市", "北九州市", "福岡市"]
 
 
+def appraisal_json() -> dict:
+    """物件の評価タブ: 地価公示の地点(住宅地・商業地、最新年)と、国税庁「建物の標準的な建築価額表」(千円/㎡、data/reference/)。"""
+    k = pd.read_parquet(PROCESSED / "koji_latest.parquet")
+    wards = sorted(k["ward"].unique())
+    cost = pd.read_csv(REFERENCE_DIR / "nta_building_cost.csv")
+    return {
+        "koji_year": int(k["year"].max()), "wards": wards, "uses": ["住宅地", "商業地"],
+        "points": {"ward": [wards.index(w) for w in k["ward"]], "use": [int(u == "商業地") for u in k["use"]],
+                   "lat": k["lat"].round(5).tolist(), "lon": k["lon"].round(5).tolist(), "price": k["price"].astype(int).tolist(),
+                   "change": k["change"].tolist(), "address": k["address"].tolist(), "station": k["station"].tolist(),
+                   "station_m": k["station_m"].astype(int).tolist(), "far": k["far"].astype(int).tolist()},
+        "building_cost": {c: cost[c].tolist() for c in cost.columns},
+    }
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", help="公開URL(末尾/)。指定すると docs/index.html の OGP の絶対URLを書き換える")
@@ -393,6 +408,8 @@ def main() -> None:
     print("loan.json", round((out / "loan.json").stat().st_size / 1e6, 2), "MB")
     (out / "long.json").write_text(json.dumps(long_json(), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print("long.json", round((out / "long.json").stat().st_size / 1e6, 2), "MB")
+    (out / "appraisal.json").write_text(json.dumps(appraisal_json(), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print("appraisal.json", round((out / "appraisal.json").stat().st_size / 1e6, 2), "MB")
 
     if args.base_url:
         index = SITE / "index.html"

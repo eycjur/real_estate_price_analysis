@@ -137,6 +137,15 @@ def site(tmp_path_factory):
                   "values": {k: [1.5 if k == "prime_short" else None] * 12 for k in export.LONG_RATE_LABELS}},
     }
     (out / "long.json").write_text(json.dumps(long, ensure_ascii=False), encoding="utf-8")
+    # 物件の評価: 地区の代表点(35.0, 139.0)の上と約1.1km北に A区 の住宅地(30万・60万円/㎡、駅640m)、A区 の商業地、B区 の住宅地。建築単価は2年分
+    appraisal = {
+        "koji_year": 2021, "wards": ["A区", "B区"], "uses": ["住宅地", "商業地"],
+        "points": {"ward": [0, 0, 0, 1], "use": [0, 0, 1, 0], "lat": [35.0, 35.01, 35.0, 35.0], "lon": [139.0, 139.0, 139.0, 139.0],
+                   "price": [300000, 600000, 1000000, 200000], "change": [1.0, 2.0, 3.0, 4.0], "address": ["A区1", "A区2", "A区3", "B区1"],
+                   "station": ["駅"] * 4, "station_m": [640, 640, 100, 640], "far": [200, 200, 400, 200]},
+        "building_cost": {"year": [2022, 2023], "wood": [180.0, 200.0], "src": [350.0, 360.0], "rc": [300.0, 314.3], "steel": [250.0, 280.0]},
+    }
+    (out / "appraisal.json").write_text(json.dumps(appraisal, ensure_ascii=False), encoding="utf-8")
     return tx, out
 
 

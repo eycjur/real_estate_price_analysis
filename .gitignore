@@ -9,3 +9,4 @@ data/processed/
 scripts/
 package.json
 package-lock.json
+ref/

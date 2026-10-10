@@ -864,6 +864,41 @@ def _koji_points(path: Path) -> pd.DataFrame:
     return pd.DataFrame(out)
 
 
+KOJI_USES = {"000": "住宅地", "005": "商業地"}  # 物件の評価タブで使う地価公示の用途
+
+
+def koji_latest(path: Path, wards: list[str]) -> pd.DataFrame:
+    """地価公示(L01)の住宅地・商業地の地点の最新年の価格(物件の評価タブ用)。区は所在地の先頭が取引データの区名に一致するもので決める。
+
+    列: ward, use, lat, lon, year(価格の年), price(円/㎡), change(前年比%), address, station, station_m, far(容積率%)。
+    """
+    with zipfile.ZipFile(path) as z:
+        name = next(n for n in z.namelist() if n.endswith(".geojson"))
+        feats = json.loads(z.read(name))["features"]
+    rows = []
+    for f in feats:
+        p = f["properties"]
+        if p["L01_002"] not in KOJI_USES:
+            continue
+        addr = re.sub(r"^(?:東京都|北海道|京都府|大阪府|\S{2,3}県)[\s　]*", "", str(p["L01_025"]))  # 先頭の都道府県名と全角空白を外す
+        ward = max((w for w in wards if addr.startswith(w)), key=len, default=None)
+        if ward is None:
+            continue
+        lon, lat = f["geometry"]["coordinates"]
+        rows.append({"ward": ward, "use": KOJI_USES[p["L01_002"]], "lat": lat, "lon": lon, "year": p["L01_007"], "price": p["L01_008"], "change": p["L01_009"],
+                     "address": addr, "station": p["L01_048"], "station_m": p["L01_050"], "far": p["L01_058"]})
+    return pd.DataFrame(rows)
+
+
+def load_koji_latest(wards: list[str]) -> pd.DataFrame:
+    d = pd.concat([koji_latest(p, wards) for p in sorted((RAW / "long").glob("L01-*_GML.zip"))], ignore_index=True)
+    missing = sorted(set(wards) - set(d["ward"]))
+    if missing:
+        raise SystemExit(f"地価公示の地点がない区があります: {missing}")
+    print(f"koji points: {len(d):,} ({d['use'].value_counts().to_dict()})")
+    return d
+
+
 def koji_index(points: pd.DataFrame) -> pd.DataFrame:
     """都市ごとの住宅地の地価指数(連鎖指数)。毎年、前年から継続して調査された地点の価格の変化率を対数平均してつなぐ。
 
@@ -999,6 +1034,7 @@ def main() -> None:
     long_city.to_parquet(OUT / "long_city.parquet", index=False)
     long_nation.to_parquet(OUT / "long_nation.parquet", index=False)
     load_long_rates().to_parquet(OUT / "long_rates.parquet", index=False)
+    load_koji_latest(sorted(wards["ward"])).to_parquet(OUT / "koji_latest.parquet", index=False)
     load_vacancy().to_parquet(OUT / "vacancy.parquet", index=False)
     print(tx.groupby(["kind", "city"]).size().unstack(0))
 

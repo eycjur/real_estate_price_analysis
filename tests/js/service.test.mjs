@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { setLoader } from '../../docs/js/data.js';
-import { bandLabels, routes } from '../../docs/js/service.js';
+import { bandLabels, cfSheet, condoCorrection, routes, segmentTrend, sig3, stampTax } from '../../docs/js/service.js';
 
 setLoader(async p => { const b = await readFile(path.join(process.env.SITE_DIR, p)); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); });
 const FIT = { city: 'X市', kind: 'mansion' };
@@ -205,7 +205,7 @@ test('loan-calc: 元利均等は毎月同額、元金均等は元金が一定。
 
 test('cashflow: 購入時・ランニング・入れ替えのコストと、売却する年数×価格ごとの総収支・IRR', () => {
   const q = { price: 2e7, rent_month: 8e4, units: 1, rent_change_pct: 0, price_age_pct: 0, price_market_pct: 0, rate: 0, years: 20, down_pct: 10, brokerage: false, sale_brokerage: true,
-    purchase: { loan_fee_pct: 2.2, scrivener: 15e4, registration_pct: 1.2, stamp: 3e4, acquisition_tax_pct: 0.7, fire_insurance: 3e4, settlement: 5e4 },
+    purchase: { loan_fee_pct: 2.2, scrivener: 15e4, registration_pct: 1.2, acquisition_tax_pct: 0.7, fire_insurance: 3e4, settlement: 5e4 },
     running: { management: 9000, repair_reserve: 9000, rental_mgmt_pct: 5, property_tax: 5000, equipment: 3000, insurance: 1000, earthquake_insurance: 0, earthquake_insurance: 0, accountant: 0 },
     turnover: { interval_years: 4, restoration: 10e4, move_out: 2e4, key: 2e4, utilities_month: 3000, ad_months: 1, agent_months: 0.5, free_rent_months: 0.5, vacancy_months: 2 } };
   const r = routes.cashflow(q);
@@ -254,7 +254,7 @@ test('cashflow: 購入時・ランニング・入れ替えのコストと、売�
 
 test('cashflow: 家賃の変動率と、リスク(金利上昇・修繕積立金と管理費の値上げ)', () => {
   const q = { price: 2e7, rent_month: 1e5, units: 1, rent_change_pct: -10, price_age_pct: 0, price_market_pct: 0, rate: 1, years: 20, down_pct: 0, brokerage: false, sale_brokerage: false,
-    purchase: { loan_fee_pct: 0, scrivener: 0, registration_pct: 0, stamp: 0, acquisition_tax_pct: 0, fire_insurance: 0, settlement: 0 },
+    purchase: { loan_fee_pct: 0, scrivener: 0, registration_pct: 0, acquisition_tax_pct: 0, fire_insurance: 0, settlement: 0 },
     running: { management: 5000, repair_reserve: 1e4, rental_mgmt_pct: 10, property_tax: 0, equipment: 0, insurance: 0, earthquake_insurance: 0, accountant: 0 },
     turnover: { interval_years: 1, restoration: 0, move_out: 0, key: 0, utilities_month: 0, ad_months: 1, agent_months: 0, free_rent_months: 0, vacancy_months: 0 },
     risk: { rate_rise_pct: 0.5, rate_rise_years: 2, repair_rise_pct: 20, management_rise_pct: 10 } };
@@ -280,7 +280,7 @@ test('cashflow: 家賃の変動率と、リスク(金利上昇・修繕積立金
 
 test('cashflow: 税金(減価償却・損益通算・譲渡所得税)', () => {
   const q = { price: 2e7, rent_month: 1e5, units: 1, rent_change_pct: 0, price_age_pct: 0, price_market_pct: 0, rate: 1, years: 20, down_pct: 0, brokerage: false, sale_brokerage: false,
-    purchase: { loan_fee_pct: 0, scrivener: 0, registration_pct: 0, stamp: 0, acquisition_tax_pct: 0, fire_insurance: 0, settlement: 0 },
+    purchase: { loan_fee_pct: 0, scrivener: 0, registration_pct: 0, acquisition_tax_pct: 0, fire_insurance: 0, settlement: 0 },
     running: { management: 0, repair_reserve: 1e4, rental_mgmt_pct: 10, property_tax: 0, equipment: 0, insurance: 0, earthquake_insurance: 0, accountant: 0 },
     turnover: { interval_years: 1, restoration: 0, move_out: 0, key: 0, utilities_month: 0, ad_months: 1, agent_months: 0, free_rent_months: 0, vacancy_months: 0 } };
   const tax = { rate_pct: 30, building_ratio_pct: 50, building_age: 20, legal_life: 47, equipment_ratio_pct: 0 };
@@ -290,14 +290,14 @@ test('cashflow: 税金(減価償却・損益通算・譲渡所得税)', () => {
   // 定額法の償却率(31年 → 0.033)で毎年33万円、30年で990万円償却し、31年目に残りの10万円
   const dep = 1e7 * 0.033, Y = r.yearly;
   close(Y.depreciation[0], dep); close(Y.depreciation[30], 1e7 - 30 * dep); assert.equal(Y.depreciation[31], 0);
-  const inc = 120e4 - 12e4 - 12e4 - 10e4 - Y.interest[0] - dep;  // 黒字なので利子は全額経費
+  const inc = 120e4 - 12e4 - 12e4 - 10e4 - Y.interest[0] - dep - 3e4;  // 黒字なので利子は全額経費。1年目は印紙税(売買1万 + ローン2万)も経費
   close(Y.taxable[0], inc); close(Y.income_tax[0], inc * 0.3); close(Y.cf[0], n.yearly.cf[0] - inc * 0.3);
   // 売却: 譲渡所得 = 売却価格 − (取得費 − 償却累計)。10年(長期)は20.315%、5年(短期)は39.63%
   close(r.grid[1][3].sale_tax, 10 * dep * 0.20315); close(r.grid[0][3].sale_tax, 5 * dep * 0.3963);
   assert.equal(r.grid[0][0].sale_tax, 0);  // −2%/年で5年なら譲渡損で税金なし
   // 赤字: 土地の取得に充てた借入金(借入2000万 − 建物1000万 = 半分)の利子は損益通算できない
   const low = routes.cashflow({ ...q, rent_month: 3e4, tax }).yearly;
-  const raw = 36e4 - 12e4 - 3.6e4 - 3e4 - low.interest[0] - dep;
+  const raw = 36e4 - 12e4 - 3.6e4 - 3e4 - low.interest[0] - dep - 3e4;  // 末尾は印紙税
   assert.ok(raw < 0); close(low.taxable[0], Math.min(0, raw + low.interest[0] * 0.5));
   assert.ok(low.income_tax[0] < 0);  // 赤字分の税金が戻る
   assert.equal(routes.cashflow({ ...q, tax: { ...tax, building_age: 50 } }).tax.life, 9);  // 法定耐用年数超: 47×0.2
@@ -443,4 +443,101 @@ test('long-rates: 変動の店頭の目安は短プラ+1%、物価上昇率は�
   close(r.values.float_store[0], 2.5);
   assert.deepEqual(r.inflation.years.slice(0, 2), [2015, 2016]);
   close(r.inflation.values[0], 5); assert.equal(r.inflation.values.at(-1), null);
+});
+
+test('segmentTrend: 折れ線の折れ点と区間ごとの年率を復元し、年率の差が小さい区間はまとめる', () => {
+  const x = Array.from({ length: 41 }, (_, i) => i), w = x.map(() => 1);
+  // 築0〜4年は年−8%、その後は年−2%
+  const y = x.map(a => a <= 4 ? a * Math.log(0.92) : 4 * Math.log(0.92) + (a - 4) * Math.log(0.98));
+  const t = segmentTrend(x, y, w);
+  assert.deepEqual(t.segments.map(s => [s.from, s.to]), [[0, 4], [4, 40]]);
+  close(t.segments[0].rate, -0.08, 1e-6); close(t.segments[1].rate, -0.02, 1e-6);
+  close(t.segments[0].share + t.segments[1].share, 1);
+  // 直線(年−2%)なら1区間
+  const flat = segmentTrend(x, x.map(a => a * Math.log(0.98)), w);
+  assert.equal(flat.segments.length, 1); close(flat.segments[0].rate, -0.02, 1e-6);
+});
+
+test('profile: 築年数・取引年の断面には区間ごとの年率をつける', async () => {
+  const age = await routes.profile({ fit: FIT, vary: 'age', property: {} });
+  assert.ok(age.trend.segments.length >= 1 && age.trend.segments.every(s => s.rate < 0.5 && s.rate > -0.5));
+  close(age.trend.segments.reduce((s, g) => s + g.share, 0), 1);
+  assert.equal(age.trend.x.length, age.trend.price.length);
+  assert.equal((await routes.profile({ fit: FIT, vary: 'station_min', property: {} })).trend, null);
+});
+
+test('condoCorrection: 国税庁の区分所有補正率(評価水準0.6未満は 乖離率×0.6、総階数2以下は対象外)', () => {
+  // 築10年・10階建ての5階・敷地持分10㎡/専有25㎡: −0.33 + 0.303×0.239 + 5×0.018 − 0.4×1.195 + 3.220
+  const c = condoCorrection({ age: 10, floors: 10, floor: 5, site_area: 10, area: 25 });
+  close(c.ratio, -0.33 + 0.303 * 0.239 + 0.09 - 0.478 + 3.22, 1e-12);
+  close(c.rate, c.ratio * 0.6, 1e-12);
+  assert.equal(condoCorrection({ age: 10, floors: 2, floor: 1, site_area: 10, area: 25 }).applicable, false);
+  // 評価水準が0.6〜1なら補正なし(乖離率 1.089)、1超なら乖離率(0.759)、乖離率が0以下なら評価しない(0)
+  assert.equal(condoCorrection({ age: 30, floors: 5, floor: 1, site_area: 25, area: 25 }).rate, 1);
+  const low = condoCorrection({ age: 40, floors: 5, floor: 1, site_area: 25, area: 25 });
+  close(low.ratio, -1.32 + 0.151 * 0.239 + 0.018 - 1.195 + 3.22, 1e-12); close(low.rate, low.ratio, 1e-12);
+  assert.equal(condoCorrection({ age: 60, floors: 3, floor: 1, site_area: 40, area: 25 }).rate, 0);
+});
+
+test('appraisal: 地価公示・建築単価・区分所有補正率・収益価格から各評価額を出す', async () => {
+  const d = (await routes.districts({ fit: FIT, ward: 'A区' }))[0].district;
+  const q = { kind: 'mansion', city: 'X市', ward: 'A区', district: d, age: 10, area: 25, station_min: 8, structure: 'RC', use: '住宅地',
+    site_area: 10, common_ratio: 1.2, floors: 10, floor: 5, rent: 100000, expense_pct: 20, cap_rate: 5,
+    sheet: { cost_pct: 7, loan_pct: 100, rate: 1.7, term: null, stress_pct: 10, risk_rate: 4.5, far: null } };
+  const r = await routes.appraisal(q);
+  // 分析シート: 売出価格がなければ推定の市場価格、容積率は単価に使った最も近い地点、路線価・建築単価は画面の値
+  assert.equal(r.sheet.price_from, 'market'); assert.equal(r.sheet.price, sig3(r.market.price)); assert.equal(r.sheet.far, 200);
+  assert.equal(r.sheet.land, sig3(10 * r.land.rosenka_unit)); assert.equal(r.sheet.term, 30);
+  // 区をまたいで近い順(駅の距離は同じ)。真上の2地点(距離0 → 0.1km 扱い)の重みが大きい
+  assert.deepEqual(r.koji.points.map(p => p.address), ['A区1', 'B区1', 'A区2']);
+  close(r.koji.unit, (10 * 300000 + 10 * 200000 + 600000 / r.koji.points[2].score) / (20 + 1 / r.koji.points[2].score));
+  const one = await routes.appraisal({ ...q, points: [0] });
+  close(one.koji.unit, 300000);
+  close(one.land.inherit, 300000 * 0.8 * 10); close(one.land.fixed, 300000 * 0.7 * 10); close(one.land.koji, 3e6);
+  const replace = 314300 * 25 * 1.2;
+  close(one.building.replace, replace); close(one.building.value, replace * (1 - 10 / 47));
+  close(one.building.fixed, replace * 0.6 * (1 - 0.8 * 10 / 47));
+  close(one.inherit.total, (one.land.inherit + one.building.fixed) * condoCorrection({ age: 10, floors: 10, floor: 5, site_area: 10, area: 25 }).rate);
+  close(one.cost_price, 3e6 + replace * (1 - 10 / 47));
+  close(one.income.price, 100000 * 12 * 0.8 / 0.05);
+  // 地区を指定しないと区の地点の中央値。区に地点がない用途はエラー
+  close((await routes.appraisal({ ...q, district: '' })).koji.unit, 450000);
+  await assert.rejects(routes.appraisal({ ...q, ward: 'B区', district: '', use: '商業地' }), /商業地の地点がありません/);
+});
+
+test('stampTax: 売買契約書(軽減税率)とローン契約書の印紙税', () => {
+  assert.equal(stampTax(2.7e7, 2.43e7), 1e4 + 2e4);
+  assert.equal(stampTax(1.2e8, 1.08e8), 6e4 + 1e5);
+  assert.equal(stampTax(8e6, 0), 5000);
+  assert.equal(stampTax(1e7, 1e7), 5000 + 1e4);  // 1,000万円ちょうどは「500万円超1,000万円以下」
+});
+
+test('cfSheet: 積算・返済比率・Stress CF・投資効率と金利上昇時の値', () => {
+  const s = cfSheet({ price: 56e6, structure: 'RC', age: 24, far: 2, land_area: 278, rosenka: 80000, floor_area: 485, build_unit: 190000,
+    rent: 656000, cost_rate: 0.07, loan_ratio: 1, rate: 0.017, term: null, stress: 0.1, expense: 0.25, risk_rate: 0.045 });
+  assert.deepEqual([s.life, s.remain, s.land, s.building, s.demolish, s.cost_price, s.far_ok], [47, 23, 22.2e6, 45.1e6, 11.7e6, 67.3e6, true]);  // 解体費 485㎡ × 0.3025坪 × 8万円
+  close(s.used_far, 485 / 278);
+  assert.deepEqual([s.income, s.gross_yield, s.cost, s.loan, s.term, s.stress_income, s.expense], [7872000, 0.141, 3.92e6, 56e6, 23, 7084800, 1968000]);
+  // 返済は毎月払い: 5,600万円・1.7%・23年で月 245,286円(年 2,943,426円)
+  assert.deepEqual([s.normal.pay, s.normal.grade, s.normal.cf, s.normal.stress_cf], [2943426, '◎', 7872000 - 2943426 - 1968000, 2.17e6]);
+  assert.deepEqual([s.efficiency, s.efficiency_grade], [3.88e6, 'Excellent']); close(s.equity_yield, 2.17e6 / 3.92e6);
+  assert.deepEqual([s.rise.pay, s.rise.grade, s.rise.cf, s.rise.stress_cf], [3912525, '△', 7872000 - 3912525 - 1968000, 1.2e6]);
+  // 融資90%なら出資 = 頭金 + 諸費用、自己資金のいらないオーバーローンは出資利回りなし。築17年未満は30年。残存耐用年数を過ぎると融資期間が出ない
+  const over = cfSheet({ price: 50.4e6, structure: 'RC', age: 10, far: 2, land_area: 278, rosenka: 80000, floor_area: 485, build_unit: 190000,
+    rent: 656000, cost_rate: 0.07, loan_ratio: 0.9, rate: 0.017, term: null, stress: 0.1, expense: 0.25, risk_rate: 0.045 });
+  assert.deepEqual([over.price, over.loan, over.equity, over.term], [50.4e6, 45.36e6, 5.04e6 + 3.53e6, 30]);
+  close(over.yields.net, (7872000 - 1968000) / (50.4e6 + 3.53e6)); close(over.yields.loan_constant, over.normal.pay / 45.36e6);
+  close(over.yields.gap, over.yields.net - over.yields.loan_constant); close(over.yields.ccr, over.normal.cf / (5.04e6 + 3.53e6));
+  const M = over.metrics;
+  close(M.dscr, (7084800 - 1968000) / over.normal.pay); close(M.break_even, (1968000 + over.normal.pay) / 7872000);
+  close(M.payback, (5.04e6 + 3.53e6) / over.normal.cf); close(M.ltv_cost, 45.36e6 / over.cost_price);
+  close(over.equity_yield, over.normal.stress_cf / (5.04e6 + 3.53e6));
+  assert.equal(cfSheet({ price: 1e7, structure: 'RC', age: 10, far: 2, land_area: 100, rosenka: 1e5, floor_area: 80, build_unit: 2e5,
+    rent: 1e5, cost_rate: 0.07, loan_ratio: 1.07, rate: 0.02, term: null, stress: 0.1, expense: 0.25, risk_rate: 0.045 }).equity_yield, null);
+  assert.match(cfSheet({ price: 1e7, structure: '木造', age: 30, far: 2, land_area: 100, rosenka: 1e5, floor_area: 80, build_unit: 2e5,
+    rent: 1e5, cost_rate: 0.07, loan_ratio: 1, rate: 0.02, term: null, stress: 0.1, expense: 0.25, risk_rate: 0.045 }).error, /残存耐用年数が-8年/);
+  // 融資期間を入れればその年数
+  assert.equal(cfSheet({ price: 1e7, structure: '木造', age: 30, far: 2, land_area: 100, rosenka: 1e5, floor_area: 80, build_unit: 2e5,
+    rent: 1e5, cost_rate: 0.07, loan_ratio: 1, rate: 0.02, term: 15, stress: 0.1, expense: 0.25, risk_rate: 0.045 }).normal.pay, Math.round(12 * 1e7 * (0.02 / 12) / (1 - (1 + 0.02 / 12) ** -180)));
+  assert.equal(sig3(-1158580), -1160000); assert.equal(sig3(0), 0);
 });
